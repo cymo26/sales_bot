@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete
 
 import sys
 import os
@@ -34,7 +35,7 @@ async def test_constraints_and_relationships():
     print("=" * 80)
     print("SALES_BOT Database Validation Tests")
     print("=" * 80)
-    
+
     async with async_session_maker() as session:
         try:
             print("\n[TEST 1] Creating mock User...")
@@ -44,6 +45,7 @@ async def test_constraints_and_relationships():
                 first_name="Robert",
                 last_name="Lewandowski",
             )
+            
             session.add(mock_user)
             await session.flush()
             print(f"   ✓ User created: {mock_user.email} (ID: {mock_user.id})")
@@ -169,12 +171,23 @@ async def test_constraints_and_relationships():
             for lead in loaded_campaign.leads:
                 print(f"      - {lead.email} (Status: {lead.status})")
             
-            # Commit all successful operations
-            await session.commit()
             
             print("\n" + "=" * 80)
             print("✅ ALL TESTS PASSED - Database is functioning correctly!")
             print("=" * 80)
+
+            # Clean up: Delete all test data before commit
+            print("\n[CLEANUP] Deleting test data...")
+            await session.execute(delete(ActivityLog).where(ActivityLog.lead_id == mock_lead.id))
+            await session.execute(delete(Lead).where(Lead.id == mock_lead.id))
+            await session.execute(delete(Campaign).where(Campaign.id == mock_campaign.id))
+            await session.execute(delete(Company).where(Company.id == mock_company.id))
+            await session.execute(delete(User).where(User.id == mock_user.id))
+            print("   ✓ All test data deleted successfully")
+
+            # Commit all operations
+            await session.commit()
+            
             
             return True
         
