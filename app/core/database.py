@@ -20,6 +20,8 @@ DATABASE_URL = os.getenv(
     "postgresql+asyncpg://user:password@localhost:5432/sales_bot"
 )
 
+
+
 # Remove ?sslmode=require from URL if present (asyncpg handles SSL via connect_args)
 if "?sslmode=" in DATABASE_URL:
     DATABASE_URL = DATABASE_URL.split("?")[0]
