@@ -100,9 +100,79 @@ tab_baza, tab_import = st.tabs(["📊 Baza Główna (Master)", "📥 Import Dany
 # --- ZAKŁADKA 1: GŁÓWNA BAZA ---
 with tab_baza:
     st.header("Twoje Kontakty")
-    st.info("Tutaj wkrótce podepniemy zapytanie SQL, które wyświetli Twoją bazę z PostgreSQL w interaktywnej tabeli.")
-    st.info("skibidi sigma beng beng")
-    # Miejsce na docelową tabelę z filtrami
+    
+    # Create columns for filter options
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        search_email = st.text_input("Szukaj po email", "")
+    with col2:
+        search_name = st.text_input("Szukaj po imieniu/nazwisku", "")
+    with col3:
+        search_company = st.text_input("Szukaj po firmie", "")
+    
+    # Fetch leads from database
+    try:
+        from sqlalchemy.orm import joinedload
+        
+        session = next(get_session_sync())
+        
+        # Build query with eager loading of company
+        query = session.query(Lead).options(joinedload(Lead.company)).join(Company, Lead.company_id == Company.id, isouter=True)
+        
+        # Apply filters
+        if search_email:
+            query = query.filter(Lead.email.ilike(f"%{search_email}%"))
+        if search_name:
+            query = query.filter(
+                (Lead.first_name.ilike(f"%{search_name}%")) | 
+                (Lead.last_name.ilike(f"%{search_name}%"))
+            )
+        if search_company:
+            query = query.filter(Company.name.ilike(f"%{search_company}%"))
+        
+        # Get all leads
+        leads = query.order_by(Lead.created_at.desc()).all()
+        
+        # Prepare data for display BEFORE closing session
+        leads_data = []
+        for lead in leads:
+            leads_data.append({
+                "Email": lead.email,
+                "Imię": lead.first_name or "—",
+                "Nazwisko": lead.last_name or "—",
+                "Stanowisko": lead.position or "—",
+                "Firma": lead.company.name if lead.company else "—",
+                "Status": lead.status,
+                "Data dodania": lead.created_at.strftime("%Y-%m-%d %H:%M"),
+            })
+        
+        session.close()
+        
+        if leads_data:
+            # Display as dataframe
+            df_display = pd.DataFrame(leads_data)
+            st.dataframe(df_display, use_container_width=True, hide_index=True)
+            
+            # Summary statistics
+            st.markdown("---")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Łączna liczba leadów", len(leads_data))
+            with col2:
+                new_leads = sum(1 for lead in leads if lead.status == "new")
+                st.metric("Nowe leads", new_leads)
+            with col3:
+                unique_companies = len(set(lead.company.name for lead in leads if lead.company))
+                st.metric("Firmy", unique_companies)
+            with col4:
+                with_position = sum(1 for lead in leads if lead.position)
+                st.metric("Ze stanowiskiem", with_position)
+        else:
+            st.info("Brak leadów w bazie danych. Zaimportuj dane w zakładce 'Import Danych (CSV)'.")
+    
+    except Exception as e:
+        st.error(f"Błąd przy pobieraniu danych: {str(e)}")
 
 # --- ZAKŁADKA 2: IMPORT PLIKÓW ---
 with tab_import:
