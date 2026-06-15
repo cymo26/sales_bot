@@ -7,6 +7,8 @@ import os
 import ssl
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 from fastapi import Depends
 
@@ -75,3 +77,44 @@ async def get_session() -> AsyncSession:
             yield session
         finally:
             await session.close()
+
+
+# ============================================================================
+# SYNCHRONOUS DATABASE SETUP (for Streamlit and other sync contexts)
+# ============================================================================
+DATABASE_URL_SYNC = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+
+engine_sync = create_engine(
+    DATABASE_URL_SYNC,
+    echo=os.getenv("SQL_ECHO", "False").lower() == "true",
+    pool_pre_ping=True,
+    connect_args={"sslmode": "require"} if "neon" in DATABASE_URL else {},
+)
+
+SessionLocal = sessionmaker(
+    bind=engine_sync,
+    autocommit=False,
+    autoflush=False,
+)
+
+
+def get_session_sync():
+    """
+    Synchronous session generator for Streamlit and other sync contexts.
+    
+    Usage in Streamlit:
+        session = next(get_session_sync())
+        try:
+            # Use session for queries
+            pass
+        finally:
+            session.close()
+    
+    Yields:
+        Session: A synchronous database session
+    """
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
