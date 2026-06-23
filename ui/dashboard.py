@@ -10,6 +10,98 @@ import pandas as pd
 from app.core.database import get_session_sync
 from app.models.models import Lead, Company
 from sqlalchemy.exc import IntegrityError
+from datetime import datetime as dt
+import uuid as uuid_lib
+
+STATUS_OPTIONS = ["new", "sent", "opened", "replied", "bounced"]
+
+STATUS_BADGES = {
+    "new":     "🔵 new",
+    "sent":    "📤 sent",
+    "opened":  "👁️ opened",
+    "replied": "💬 replied",
+    "bounced": "❌ bounced",
+}
+
+
+@st.dialog("Profil Kontaktu", width="large")
+def show_lead_dialog(lead_id: str):
+    """Modal dialog showing full lead details with inline editing."""
+    session = next(get_session_sync())
+    try:
+        from sqlalchemy.orm import joinedload as _jl
+        lead = (
+            session.query(Lead)
+            .options(_jl(Lead.company))
+            .filter(Lead.id == uuid_lib.UUID(lead_id))
+            .first()
+        )
+        if lead is None:
+            st.error("Nie znaleziono kontaktu.")
+            return
+
+        # --- Header ---
+        full_name = f"{lead.first_name or ''} {lead.last_name or ''}".strip() or lead.email
+        company_name = lead.company.name if lead.company else "—"
+        st.subheader(full_name)
+        st.caption(f"{lead.position or '—'}  ·  {company_name}")
+        st.markdown("---")
+
+        # --- Details row ---
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Email", lead.email)
+        col2.metric("Firma", company_name)
+        col3.metric("Status", STATUS_BADGES.get(lead.status, lead.status))
+
+        if lead.company:
+            col4, col5, col6 = st.columns(3)
+            col4.metric("Lokalizacja", lead.company.location or "—")
+            col5.metric("Branża", lead.company.industry or "—")
+            col6.metric("Wielkość", lead.company.size_range or "—")
+
+        st.markdown("---")
+
+        # --- Editable section ---
+        st.markdown("**Edytuj rekord**")
+        new_status = st.selectbox(
+            "Status",
+            options=STATUS_OPTIONS,
+            index=STATUS_OPTIONS.index(lead.status) if lead.status in STATUS_OPTIONS else 0,
+            key=f"dialog_status_{lead_id}",
+        )
+        new_notes = st.text_area(
+            "Notatki",
+            value=lead.notes or "",
+            height=120,
+            max_chars=500,
+            placeholder="Wpisz swoje notatki operacyjne…",
+            key=f"dialog_notes_{lead_id}",
+        )
+
+        st.markdown("---")
+        col_save, col_cancel = st.columns([1, 4])
+        if col_save.button("💾 Zapisz", type="primary", key=f"dialog_save_{lead_id}"):
+            changed = False
+            if lead.status != new_status:
+                lead.status = new_status
+                changed = True
+            resolved_notes = new_notes.strip() if new_notes.strip() else None
+            if lead.notes != resolved_notes:
+                lead.notes = resolved_notes
+                changed = True
+            if changed:
+                lead.updated_at = dt.utcnow()
+                session.commit()
+                st.toast("✅ Zmiany zapisane!", icon="✅")
+            else:
+                st.toast("Brak zmian do zapisania.", icon="ℹ️")
+            st.rerun()
+
+    except Exception as e:
+        st.error(f"Błąd: {str(e)}")
+    finally:
+        session.close()
+
 
 def detect_column_mapping(df_columns):
     """
@@ -112,10 +204,10 @@ with st.sidebar:
         st.rerun()
 
 # 3. Podział na zakładki
-tab_baza, tab_import = st.tabs(["📊 Baza Główna (Master)", "📥 Import Danych (CSV)"])
+tab_kontakty, tab_firmy, tab_import = st.tabs(["👥 Kontakty", "🏢 Baza Firm", "📥 Import"])
 
-# --- ZAKŁADKA 1: GŁÓWNA BAZA ---
-with tab_baza:
+# --- ZAKŁADKA 1: KONTAKTY ---
+with tab_kontakty:
     st.header("Twoje Kontakty")
 
     # Active filter badges
@@ -133,16 +225,17 @@ with tab_baza:
     if active_filters:
         st.caption("Aktywne filtry: " + " | ".join(active_filters))
 
-    # Fetch leads from database
     try:
         from sqlalchemy.orm import joinedload
-        
+
         session = next(get_session_sync())
-        
-        # Build query with eager loading of company
-        query = session.query(Lead).options(joinedload(Lead.company)).join(Company, Lead.company_id == Company.id, isouter=True)
-        
-        # Apply sidebar filters
+
+        query = (
+            session.query(Lead)
+            .options(joinedload(Lead.company))
+            .join(Company, Lead.company_id == Company.id, isouter=True)
+        )
+
         if filter_email:
             query = query.filter(Lead.email.ilike(f"%{filter_email}%"))
         if filter_name:
@@ -156,169 +249,132 @@ with tab_baza:
             query = query.filter(Company.location.ilike(f"%{filter_location}%"))
         if filter_status:
             query = query.filter(Lead.status.in_(filter_status))
-        
-        # Get all leads
+
         leads = query.order_by(Lead.created_at.desc()).all()
-        
-        # Prepare data for display BEFORE closing session
+
+        # Collect all data before closing session
         leads_data = []
         for lead in leads:
             leads_data.append({
-                "_id": str(lead.id),
-                "do_usunięcia": False,
-                "Email": lead.email,
-                "Imię": lead.first_name or "",
-                "Nazwisko": lead.last_name or "",
-                "Stanowisko": lead.position or "",
-                "Firma": lead.company.name if lead.company else "",
-                "Status": lead.status,
-                "Notatki": lead.notes or "",
-                "Data dodania": lead.created_at.strftime("%Y-%m-%d %H:%M"),
+                "id": str(lead.id),
+                "full_name": f"{lead.first_name or ''} {lead.last_name or ''}".strip() or "—",
+                "email": lead.email,
+                "position": lead.position or "—",
+                "company": lead.company.name if lead.company else "—",
+                "status": lead.status,
+                "notes": lead.notes or "",
+                "created_at": lead.created_at.strftime("%Y-%m-%d"),
             })
-        
+
         session.close()
-        
-        if leads_data:
-            # Interactive data editor
-            df_display = pd.DataFrame(leads_data)
-            edited_df = st.data_editor(
-                df_display,
-                use_container_width=True,
-                hide_index=True,
-                num_rows="fixed",
-                key="leads_editor",
-                column_config={
-                    "_id": st.column_config.TextColumn(
-                        "ID",
-                        disabled=True,
-                        width="small",
-                    ),
-                    "do_usunięcia": st.column_config.CheckboxColumn(
-                        "🗑️ Usuń",
-                        help="Zaznacz, aby trwale usunąć ten rekord z bazy",
-                        default=False,
-                        width="small",
-                    ),
-                    "Email": st.column_config.TextColumn(
-                        "Email",
-                        disabled=True,
-                        width="medium",
-                    ),
-                    "Imię": st.column_config.TextColumn(
-                        "Imię",
-                        disabled=True,
-                        width="small",
-                    ),
-                    "Nazwisko": st.column_config.TextColumn(
-                        "Nazwisko",
-                        disabled=True,
-                        width="small",
-                    ),
-                    "Stanowisko": st.column_config.TextColumn(
-                        "Stanowisko",
-                        disabled=True,
-                        width="medium",
-                    ),
-                    "Firma": st.column_config.TextColumn(
-                        "Firma",
-                        disabled=True,
-                        width="medium",
-                    ),
-                    "Status": st.column_config.SelectboxColumn(
-                        "Status",
-                        options=["new", "sent", "opened", "replied", "bounced"],
-                        width="small",
-                    ),
-                    "Notatki": st.column_config.TextColumn(
-                        "Notatki",
-                        help="Twoje prywatne notatki operacyjne",
-                        width="large",
-                        max_chars=500,
-                    ),
-                    "Data dodania": st.column_config.TextColumn(
-                        "Data dodania",
-                        disabled=True,
-                        width="small",
-                    ),
-                },
-            )
-            
-            # Summary statistics
-            st.markdown("---")
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Łączna liczba leadów", len(leads_data))
-            with col2:
-                new_leads = sum(1 for lead in leads if lead.status == "new")
-                st.metric("Nowe leads", new_leads)
-            with col3:
-                unique_companies = len(set(lead.company.name for lead in leads if lead.company))
-                st.metric("Firmy", unique_companies)
-            with col4:
-                with_position = sum(1 for lead in leads if lead.position)
-                st.metric("Ze stanowiskiem", with_position)
 
-            st.markdown("---")
-            if st.button("💾 Zapisz zmiany do bazy danych", type="primary", use_container_width=False):
-                import uuid as uuid_lib
-                from datetime import datetime as dt
-                updated_count = 0
-                deleted_count = 0
-                errors = []
-
-                sync_session = next(get_session_sync())
-                try:
-                    for _, row in edited_df.iterrows():
-                        lead_id = uuid_lib.UUID(row["_id"])
-                        lead_obj = sync_session.get(Lead, lead_id)
-                        if lead_obj is None:
-                            continue
-
-                        if row["do_usunięcia"]:
-                            sync_session.delete(lead_obj)
-                            deleted_count += 1
-                        else:
-                            changed = False
-                            new_status = row["Status"]
-                            new_notes = row["Notatki"] if row["Notatki"] != "" else None
-                            if lead_obj.status != new_status:
-                                lead_obj.status = new_status
-                                changed = True
-                            if lead_obj.notes != new_notes:
-                                lead_obj.notes = new_notes
-                                changed = True
-                            if changed:
-                                lead_obj.updated_at = dt.utcnow()
-                                updated_count += 1
-
-                    sync_session.commit()
-                except Exception as sync_err:
-                    sync_session.rollback()
-                    errors.append(str(sync_err))
-                finally:
-                    sync_session.close()
-
-                if errors:
-                    st.error(f"Błąd podczas zapisu: {errors[0]}")
-                else:
-                    parts = []
-                    if updated_count:
-                        parts.append(f"zaktualizowano {updated_count} rekord(ów)")
-                    if deleted_count:
-                        parts.append(f"usunięto {deleted_count} rekord(ów)")
-                    if parts:
-                        st.toast(f"✅ Zapisano: {', '.join(parts)}", icon="✅")
-                    else:
-                        st.toast("Brak zmian do zapisania.", icon="ℹ️")
-                    st.rerun()
-
+        if not leads_data:
+            st.info("Brak leadów w bazie danych. Zaimportuj dane w zakładce '📥 Import'.")
         else:
-            st.info("Brak leadów w bazie danych. Zaimportuj dane w zakładce 'Import Danych (CSV)'.")
-    
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Łącznie", len(leads_data))
+            col2.metric("Nowe", sum(1 for l in leads_data if l["status"] == "new"))
+            col3.metric("Firmy", len(set(l["company"] for l in leads_data if l["company"] != "—")))
+            col4.metric("Ze stanowiskiem", sum(1 for l in leads_data if l["position"] != "—"))
+
+            st.markdown("---")
+
+            # Column headers
+            h1, h2, h3, h4, h5, h6 = st.columns([3, 3, 2, 2, 1, 1])
+            h1.markdown("**Imię i nazwisko**")
+            h2.markdown("**Email**")
+            h3.markdown("**Firma**")
+            h4.markdown("**Stanowisko**")
+            h5.markdown("**Status**")
+            h6.markdown("")
+            st.divider()
+
+            for row in leads_data:
+                c1, c2, c3, c4, c5, c6 = st.columns([3, 3, 2, 2, 1, 1])
+                c1.markdown(row["full_name"])
+                c2.markdown(f"`{row['email']}`")
+                c3.markdown(row["company"])
+                c4.markdown(row["position"])
+                c5.markdown(STATUS_BADGES.get(row["status"], row["status"]))
+                if c6.button("🔍", key=f"btn_{row['id']}", help="Otwórz profil kontaktu"):
+                    show_lead_dialog(row["id"])
+
     except Exception as e:
         st.error(f"Błąd przy pobieraniu danych: {str(e)}")
 
-# --- ZAKŁADKA 2: IMPORT PLIKÓW ---
+# --- ZAKŁADKA 2: BAZA FIRM ---
+with tab_firmy:
+    st.header("Baza Firm (Account-Based View)")
+
+    try:
+        from sqlalchemy.orm import joinedload as jl
+
+        firm_session = next(get_session_sync())
+
+        firm_query = firm_session.query(Company).options(jl(Company.leads))
+        if filter_company:
+            firm_query = firm_query.filter(Company.name.ilike(f"%{filter_company}%"))
+        if filter_location:
+            firm_query = firm_query.filter(Company.location.ilike(f"%{filter_location}%"))
+        companies = firm_query.order_by(Company.name).all()
+
+        # Collect all data before closing session
+        companies_data = []
+        for company in companies:
+            leads_list = []
+            for lead in company.leads:
+                leads_list.append({
+                    "Imię": lead.first_name or "—",
+                    "Nazwisko": lead.last_name or "—",
+                    "Stanowisko": lead.position or "—",
+                    "Email": lead.email,
+                    "Status": lead.status,
+                })
+            companies_data.append({
+                "name": company.name,
+                "domain": company.domain,
+                "industry": company.industry or "—",
+                "location": company.location or "—",
+                "size_range": company.size_range or "—",
+                "leads": leads_list,
+            })
+
+        firm_session.close()
+
+        if not companies_data:
+            st.info("Brak firm w bazie danych.")
+        else:
+            st.caption(f"Znaleziono **{len(companies_data)}** firm(y).")
+            for co in companies_data:
+                lead_count = len(co["leads"])
+                label = f"🏢 {co['name']} — {co['domain']}  ·  {lead_count} kontakt(ów)"
+                with st.expander(label, expanded=False):
+                    meta_col1, meta_col2, meta_col3 = st.columns(3)
+                    meta_col1.markdown(f"**Branża:** {co['industry']}")
+                    meta_col2.markdown(f"**Lokalizacja:** {co['location']}")
+                    meta_col3.markdown(f"**Wielkość:** {co['size_range']}")
+
+                    if co["leads"]:
+                        st.markdown("**Kontakty w tej firmie:**")
+                        df_leads = pd.DataFrame(co["leads"])
+                        st.dataframe(
+                            df_leads,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "Status": st.column_config.TextColumn("Status", width="small"),
+                                "Stanowisko": st.column_config.TextColumn("Stanowisko", width="medium"),
+                            },
+                        )
+                    else:
+                        st.caption("Brak przypisanych kontaktów.")
+
+    except Exception as e:
+        st.error(f"Błąd przy pobieraniu firm: {str(e)}")
+
+
+# --- ZAKŁADKA 3: IMPORT PLIKÓW ---
 with tab_import:
     st.header("Importuj nowe kontakty")
     st.markdown("Wgraj plik CSV (np. z Eventory lub Livespace), aby dodać rekordy do bazy.")
