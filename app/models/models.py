@@ -195,6 +195,11 @@ class Lead(SQLModel, table=True):
         default="new",
         description="Lead status (new, sent, opened, replied, bounced)"
     )
+    notes: Optional[str] = Field(
+        default=None,
+        nullable=True,
+        description="Operational notes added manually by the salesperson"
+    )
     company_id: Optional[uuid.UUID] = Field(
         default=None,
         foreign_key="companies.id",
