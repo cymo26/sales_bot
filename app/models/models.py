@@ -200,6 +200,12 @@ class Lead(SQLModel, table=True):
         nullable=True,
         description="Operational notes added manually by the salesperson"
     )
+    location: Optional[str] = Field(
+        default=None,
+        nullable=True,
+        index=True,
+        description="Lead's city or location (e.g., Warsaw, Krakow)"
+    )
     company_id: Optional[uuid.UUID] = Field(
         default=None,
         foreign_key="companies.id",

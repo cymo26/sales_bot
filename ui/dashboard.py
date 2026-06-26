@@ -12,15 +12,16 @@ from app.models.models import Lead, Company
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime as dt
 import uuid as uuid_lib
+from html import escape as h
 
 STATUS_OPTIONS = ["new", "sent", "opened", "replied", "bounced"]
 
 STATUS_BADGES = {
-    "new":     "🔵 new",
-    "sent":    "📤 sent",
-    "opened":  "👁️ opened",
-    "replied": "💬 replied",
-    "bounced": "❌ bounced",
+    "new":     "new",
+    "sent":    "sent",
+    "opened":  "opened",
+    "replied": "replied",
+    "bounced": "bounced",
 }
 
 
@@ -51,13 +52,12 @@ def show_lead_dialog(lead_id: str):
         col1, col2, col3 = st.columns(3)
         col1.metric("Email", lead.email)
         col2.metric("Firma", company_name)
-        col3.metric("Status", STATUS_BADGES.get(lead.status, lead.status))
+        col3.metric("Lokalizacja", lead.location or "—")
 
-        if lead.company:
-            col4, col5, col6 = st.columns(3)
-            col4.metric("Lokalizacja", lead.company.location or "—")
-            col5.metric("Branża", lead.company.industry or "—")
-            col6.metric("Wielkość", lead.company.size_range or "—")
+        col4, col5, col6 = st.columns(3)
+        col4.metric("Status", STATUS_BADGES.get(lead.status, lead.status))
+        col5.metric("Branza firmy", lead.company.industry or "—" if lead.company else "—")
+        col6.metric("Wielkosc firmy", lead.company.size_range or "—" if lead.company else "—")
 
         st.markdown("---")
 
@@ -80,7 +80,7 @@ def show_lead_dialog(lead_id: str):
 
         st.markdown("---")
         col_save, col_cancel = st.columns([1, 4])
-        if col_save.button("💾 Zapisz", type="primary", key=f"dialog_save_{lead_id}"):
+        if col_save.button("Zapisz", type="primary", key=f"dialog_save_{lead_id}"):
             changed = False
             if lead.status != new_status:
                 lead.status = new_status
@@ -92,9 +92,9 @@ def show_lead_dialog(lead_id: str):
             if changed:
                 lead.updated_at = dt.utcnow()
                 session.commit()
-                st.toast("✅ Zmiany zapisane!", icon="✅")
+                st.toast("Zmiany zapisane!")
             else:
-                st.toast("Brak zmian do zapisania.", icon="ℹ️")
+                st.toast("Brak zmian do zapisania.")
             st.rerun()
 
     except Exception as e:
@@ -161,6 +161,17 @@ def detect_column_mapping(df_columns):
             'employer',
             'organization_name',
         ],
+        'location': [
+            'city',
+            'miasto',
+            'lokalizacja',
+            'location',
+            'loc',
+            'region',
+            'kraj',
+            'country',
+            'address',
+        ],
     }
 
     mapping = {}
@@ -177,18 +188,17 @@ def detect_column_mapping(df_columns):
 
 # 1. Konfiguracja strony (musi być pierwszą komendą Streamlit)
 st.set_page_config(
-    page_title="SALES BOT - PROIDEA", 
-    page_icon="🤖", 
+    page_title="SALES BOT - PROIDEA",
     layout="wide"
 )
 
 # 2. Nagłówek
-st.title("🤖 SALES BOT - Centrum Dowodzenia")
+st.title("SALES BOT - Centrum Dowodzenia")
 st.markdown("Witaj w swoim prywatnym systemie zarządzania bazą kontaktów (PostgreSQL).")
 
 # --- SIDEBAR FILTERS ---
 with st.sidebar:
-    st.header("🔍 Filtry")
+    st.header("Filtry")
     filter_email = st.text_input("Email", "")
     filter_name = st.text_input("Imię lub nazwisko", "")
     filter_company = st.text_input("Firma", "")
@@ -204,7 +214,81 @@ with st.sidebar:
         st.rerun()
 
 # 3. Podział na zakładki
-tab_kontakty, tab_firmy, tab_import = st.tabs(["👥 Kontakty", "🏢 Baza Firm", "📥 Import"])
+st.markdown("""
+<style>
+/* === LEAD ROW === */
+
+/* Wrapper: each st.container() that holds a div.lr gets hover + relative positioning */
+div[data-testid="stVerticalBlock"]:has(> div > div > div.lr) {
+    position: relative !important;
+    border-radius: 6px !important;
+    transition: background 0.13s ease !important;
+    overflow: visible !important;
+}
+div[data-testid="stVerticalBlock"]:has(> div > div > div.lr):hover {
+    background: #f2f5ff !important;
+}
+
+/* Visual row: CSS grid for column alignment, pointer-events off so button handles clicks */
+div.lr {
+    display: grid;
+    grid-template-columns: 2.2fr 2.2fr 1.6fr 1.6fr 1fr 0.9fr;
+    align-items: center;
+    gap: 0 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid #efefef;
+    pointer-events: none;
+    user-select: none;
+    cursor: pointer;
+}
+.lr-name    { font-weight: 600; font-size: 0.92rem; color: #1a1a2e;
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lr-email   { font-size: 0.85rem; color: #555;
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lr-sec     { font-size: 0.87rem; color: #666;
+               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lr-badge   { display:inline-block; padding:2px 10px; border-radius:10px;
+               font-size:0.74rem; font-weight:700; letter-spacing:0.04em; }
+.b-new      { background:#dbeafe; color:#1d4ed8; }
+.b-sent     { background:#ede9fe; color:#5b21b6; }
+.b-opened   { background:#d1fae5; color:#065f46; }
+.b-replied  { background:#fef3c7; color:#92400e; }
+.b-bounced  { background:#fee2e2; color:#991b1b; }
+
+/* Button overlay: all intermediate containers become position:absolute, inset:0 */
+div[data-testid="stVerticalBlock"]:has(> div > div > div.lr)
+    > div:last-child {
+    position: absolute !important;
+    inset: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+}
+div[data-testid="stVerticalBlock"]:has(> div > div > div.lr)
+    > div:last-child > div,
+div[data-testid="stVerticalBlock"]:has(> div > div > div.lr)
+    > div:last-child > div > div {
+    height: 100% !important;
+    overflow: visible !important;
+}
+div[data-testid="stVerticalBlock"]:has(> div > div > div.lr)
+    > div:last-child button {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    opacity: 0 !important;
+    cursor: pointer !important;
+    padding: 0 !important;
+    min-height: unset !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+tab_kontakty, tab_firmy, tab_import = st.tabs(["Kontakty", "Baza Firm", "Import"])
 
 # --- ZAKŁADKA 1: KONTAKTY ---
 with tab_kontakty:
@@ -246,13 +330,15 @@ with tab_kontakty:
         if filter_company:
             query = query.filter(Company.name.ilike(f"%{filter_company}%"))
         if filter_location:
-            query = query.filter(Company.location.ilike(f"%{filter_location}%"))
+            query = query.filter(
+                (Lead.location.ilike(f"%{filter_location}%")) |
+                (Company.location.ilike(f"%{filter_location}%"))
+            )
         if filter_status:
             query = query.filter(Lead.status.in_(filter_status))
 
         leads = query.order_by(Lead.created_at.desc()).all()
 
-        # Collect all data before closing session
         leads_data = []
         for lead in leads:
             leads_data.append({
@@ -261,6 +347,7 @@ with tab_kontakty:
                 "email": lead.email,
                 "position": lead.position or "—",
                 "company": lead.company.name if lead.company else "—",
+                "location": lead.location or "—",
                 "status": lead.status,
                 "notes": lead.notes or "",
                 "created_at": lead.created_at.strftime("%Y-%m-%d"),
@@ -269,39 +356,57 @@ with tab_kontakty:
         session.close()
 
         if not leads_data:
-            st.info("Brak leadów w bazie danych. Zaimportuj dane w zakładce '📥 Import'.")
+            st.info("Brak leadów w bazie danych. Zaimportuj dane w zakładce 'Import'.")
         else:
             # Summary metrics
             col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Łącznie", len(leads_data))
+            col1.metric("Lacznie", len(leads_data))
             col2.metric("Nowe", sum(1 for l in leads_data if l["status"] == "new"))
             col3.metric("Firmy", len(set(l["company"] for l in leads_data if l["company"] != "—")))
             col4.metric("Ze stanowiskiem", sum(1 for l in leads_data if l["position"] != "—"))
 
             st.markdown("---")
 
-            # Column headers
-            h1, h2, h3, h4, h5, h6 = st.columns([3, 3, 2, 2, 1, 1])
-            h1.markdown("**Imię i nazwisko**")
-            h2.markdown("**Email**")
-            h3.markdown("**Firma**")
-            h4.markdown("**Stanowisko**")
-            h5.markdown("**Status**")
-            h6.markdown("")
-            st.divider()
+            # Table header (plain markdown, no container/button — never gets hover CSS)
+            st.markdown(
+                "<div style='display:grid;grid-template-columns:2.2fr 2.2fr 1.6fr 1.6fr 1fr 0.9fr;"
+                "gap:0 10px;padding:6px 14px;border-bottom:2px solid #d8d8d8;'>"
+                "<span style='font-size:0.72rem;font-weight:700;text-transform:uppercase;"
+                "letter-spacing:0.07em;color:#999'>Imie i Nazwisko</span>"
+                "<span style='font-size:0.72rem;font-weight:700;text-transform:uppercase;"
+                "letter-spacing:0.07em;color:#999'>Email</span>"
+                "<span style='font-size:0.72rem;font-weight:700;text-transform:uppercase;"
+                "letter-spacing:0.07em;color:#999'>Firma</span>"
+                "<span style='font-size:0.72rem;font-weight:700;text-transform:uppercase;"
+                "letter-spacing:0.07em;color:#999'>Stanowisko</span>"
+                "<span style='font-size:0.72rem;font-weight:700;text-transform:uppercase;"
+                "letter-spacing:0.07em;color:#999'>Lokalizacja</span>"
+                "<span style='font-size:0.72rem;font-weight:700;text-transform:uppercase;"
+                "letter-spacing:0.07em;color:#999'>Status</span>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
+            # Lead rows: each is a st.container() so the button can be absolutely
+            # positioned over the HTML grid row inside the SAME vertical block.
             for row in leads_data:
-                c1, c2, c3, c4, c5, c6 = st.columns([3, 3, 2, 2, 1, 1])
-                c1.markdown(row["full_name"])
-                c2.markdown(f"`{row['email']}`")
-                c3.markdown(row["company"])
-                c4.markdown(row["position"])
-                c5.markdown(STATUS_BADGES.get(row["status"], row["status"]))
-                if c6.button("🔍", key=f"btn_{row['id']}", help="Otwórz profil kontaktu"):
-                    show_lead_dialog(row["id"])
+                with st.container():
+                    st.markdown(
+                        f"<div class='lr'>"
+                        f"<span class='lr-name'>{h(row['full_name'])}</span>"
+                        f"<span class='lr-email'>{h(row['email'])}</span>"
+                        f"<span class='lr-sec'>{h(row['company'])}</span>"
+                        f"<span class='lr-sec'>{h(row['position'])}</span>"
+                        f"<span class='lr-sec'>{h(row['location'])}</span>"
+                        f"<span class='lr-badge b-{h(row['status'])}'>{h(row['status'])}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                    if st.button("​", key=f"lead_{row['id']}", use_container_width=True):
+                        show_lead_dialog(row['id'])
 
     except Exception as e:
-        st.error(f"Błąd przy pobieraniu danych: {str(e)}")
+        st.error(f"Blad przy pobieraniu danych: {str(e)}")
 
 # --- ZAKŁADKA 2: BAZA FIRM ---
 with tab_firmy:
@@ -348,7 +453,7 @@ with tab_firmy:
             st.caption(f"Znaleziono **{len(companies_data)}** firm(y).")
             for co in companies_data:
                 lead_count = len(co["leads"])
-                label = f"🏢 {co['name']} — {co['domain']}  ·  {lead_count} kontakt(ów)"
+                label = f"{co['name']} — {co['domain']}  ·  {lead_count} kontakt(ow)"
                 with st.expander(label, expanded=False):
                     meta_col1, meta_col2, meta_col3 = st.columns(3)
                     meta_col1.markdown(f"**Branża:** {co['industry']}")
@@ -398,7 +503,7 @@ with tab_import:
             column_mapping = detect_column_mapping(df.columns)
         
         if not column_mapping or 'email' not in column_mapping:
-            st.error("⚠️ CSV musi zawierać kolumnę 'email' (lub podobnie nazwaną)")
+            st.error("CSV musi zawierac kolumne 'email' (lub podobnie nazwana)")
         else:
             st.info(f"Wykryto kolumny: {column_mapping}")
             
@@ -477,6 +582,6 @@ with tab_import:
             
             # Display results
             if added_leads > 0:
-                st.success(f"✅ Pomyślnie dodano {added_leads} lead(ów)")
+                st.success(f"Pomyslnie dodano {added_leads} lead(ow)")
             if skipped_leads > 0:
-                st.warning(f"⚠️ Pominięto {skipped_leads} lead(ów) (duplikaty)")
+                st.warning(f"Pominieto {skipped_leads} lead(ow) (duplikaty)")
