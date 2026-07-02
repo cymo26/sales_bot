@@ -214,84 +214,33 @@ with st.sidebar:
         st.rerun()
 
 # 3. Podział na zakładki
+# Detect ?lead_id= from HTML row click BEFORE tabs are rendered.
+# Storing in session_state survives the rerun caused by clearing query_params.
+if 'lead_id' in st.query_params:
+    st.session_state['_open_lead'] = st.query_params['lead_id']
+    del st.query_params['lead_id']   # triggers one more rerun; dialog opens on that rerun
+    st.stop()                        # halt current rerun here — next rerun will show dialog
+# Badge styles only — row layout is now native Streamlit
 st.markdown("""
 <style>
-/* === LEAD ROW === */
-
-/* Wrapper: each st.container() that holds a div.lr gets hover + relative positioning */
-div[data-testid="stVerticalBlock"]:has(> div > div > div.lr) {
-    position: relative !important;
-    border-radius: 6px !important;
-    transition: background 0.13s ease !important;
-    overflow: visible !important;
-}
-div[data-testid="stVerticalBlock"]:has(> div > div > div.lr):hover {
-    background: #f2f5ff !important;
-}
-
-/* Visual row: CSS grid for column alignment, pointer-events off so button handles clicks */
-div.lr {
-    display: grid;
-    grid-template-columns: 2.2fr 2.2fr 1.6fr 1.6fr 1fr 0.9fr;
-    align-items: center;
-    gap: 0 10px;
-    padding: 12px 14px;
-    border-bottom: 1px solid #efefef;
-    pointer-events: none;
-    user-select: none;
-    cursor: pointer;
-}
-.lr-name    { font-weight: 600; font-size: 0.92rem; color: #1a1a2e;
-               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lr-email   { font-size: 0.85rem; color: #555;
-               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lr-sec     { font-size: 0.87rem; color: #666;
-               overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lr-badge   { display:inline-block; padding:2px 10px; border-radius:10px;
-               font-size:0.74rem; font-weight:700; letter-spacing:0.04em; }
-.b-new      { background:#dbeafe; color:#1d4ed8; }
-.b-sent     { background:#ede9fe; color:#5b21b6; }
-.b-opened   { background:#d1fae5; color:#065f46; }
-.b-replied  { background:#fef3c7; color:#92400e; }
-.b-bounced  { background:#fee2e2; color:#991b1b; }
-
-/* Button overlay: all intermediate containers become position:absolute, inset:0 */
-div[data-testid="stVerticalBlock"]:has(> div > div > div.lr)
-    > div:last-child {
-    position: absolute !important;
-    inset: 0 !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    overflow: visible !important;
-}
-div[data-testid="stVerticalBlock"]:has(> div > div > div.lr)
-    > div:last-child > div,
-div[data-testid="stVerticalBlock"]:has(> div > div > div.lr)
-    > div:last-child > div > div {
-    height: 100% !important;
-    overflow: visible !important;
-}
-div[data-testid="stVerticalBlock"]:has(> div > div > div.lr)
-    > div:last-child button {
-    position: absolute !important;
-    inset: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-    opacity: 0 !important;
-    cursor: pointer !important;
-    padding: 0 !important;
-    min-height: unset !important;
-}
+.lbadge { display:inline-block; padding:3px 10px; border-radius:12px; font-size:0.78rem; font-weight:700; letter-spacing:0.03em; }
+.lb-new     { background:#1e3a8a; color:#60a5fa; }
+.lb-sent    { background:#3b0764; color:#d8b4fe; }
+.lb-opened  { background:#064e3b; color:#6ee7b7; }
+.lb-replied { background:#451a03; color:#fde68a; }
+.lb-bounced { background:#450a0a; color:#fca5a5; }
 </style>
 """, unsafe_allow_html=True)
 
 tab_kontakty, tab_firmy, tab_import = st.tabs(["Kontakty", "Baza Firm", "Import"])
 
+# Open dialog if session_state was set by the param handler above
+if '_open_lead' in st.session_state:
+    show_lead_dialog(st.session_state.pop('_open_lead'))
+
 # --- ZAKŁADKA 1: KONTAKTY ---
 with tab_kontakty:
+
     st.header("Twoje Kontakty")
 
     # Active filter badges
@@ -367,43 +316,37 @@ with tab_kontakty:
 
             st.markdown("---")
 
-            # Table header (plain markdown, no container/button — never gets hover CSS)
-            st.markdown(
-                "<div style='display:grid;grid-template-columns:2.2fr 2.2fr 1.6fr 1.6fr 1fr 0.9fr;"
-                "gap:0 10px;padding:6px 14px;border-bottom:2px solid #d8d8d8;'>"
-                "<span style='font-size:0.72rem;font-weight:700;text-transform:uppercase;"
-                "letter-spacing:0.07em;color:#999'>Imie i Nazwisko</span>"
-                "<span style='font-size:0.72rem;font-weight:700;text-transform:uppercase;"
-                "letter-spacing:0.07em;color:#999'>Email</span>"
-                "<span style='font-size:0.72rem;font-weight:700;text-transform:uppercase;"
-                "letter-spacing:0.07em;color:#999'>Firma</span>"
-                "<span style='font-size:0.72rem;font-weight:700;text-transform:uppercase;"
-                "letter-spacing:0.07em;color:#999'>Stanowisko</span>"
-                "<span style='font-size:0.72rem;font-weight:700;text-transform:uppercase;"
-                "letter-spacing:0.07em;color:#999'>Lokalizacja</span>"
-                "<span style='font-size:0.72rem;font-weight:700;text-transform:uppercase;"
-                "letter-spacing:0.07em;color:#999'>Status</span>"
-                "</div>",
-                unsafe_allow_html=True,
-            )
+            # Column header row
+            h1, h2, h3, h4, h5, h6, h7 = st.columns([2, 2.5, 2, 3, 1.5, 1, 1])
+            for col, label in zip(
+                [h1, h2, h3, h4, h5, h6, h7],
+                ["Imie i Nazwisko", "Email", "Firma", "Stanowisko", "Lokalizacja", "Status", ""],
+            ):
+                col.markdown(
+                    f"<small style='font-weight:700;text-transform:uppercase;"
+                    f"letter-spacing:.06em;opacity:.45'>{label}</small>",
+                    unsafe_allow_html=True,
+                )
+            st.divider()
 
-            # Lead rows: each is a st.container() so the button can be absolutely
-            # positioned over the HTML grid row inside the SAME vertical block.
+            # Lead rows
             for row in leads_data:
-                with st.container():
-                    st.markdown(
-                        f"<div class='lr'>"
-                        f"<span class='lr-name'>{h(row['full_name'])}</span>"
-                        f"<span class='lr-email'>{h(row['email'])}</span>"
-                        f"<span class='lr-sec'>{h(row['company'])}</span>"
-                        f"<span class='lr-sec'>{h(row['position'])}</span>"
-                        f"<span class='lr-sec'>{h(row['location'])}</span>"
-                        f"<span class='lr-badge b-{h(row['status'])}'>{h(row['status'])}</span>"
-                        f"</div>",
-                        unsafe_allow_html=True,
-                    )
-                    if st.button("​", key=f"lead_{row['id']}", use_container_width=True):
-                        show_lead_dialog(row['id'])
+                c1, c2, c3, c4, c5, c6, c_act = st.columns([2, 2.5, 2, 3, 1.5, 1, 1])
+                c1.markdown(f"**{h(row['full_name'])}**")
+                c2.markdown(
+                    f"<span style='font-size:.88rem;font-family:ui-monospace,monospace;"
+                    f"color:#a3a8b8'>{h(row['email'])}</span>",
+                    unsafe_allow_html=True,
+                )
+                c3.write(row['company'])
+                c4.write(row['position'])
+                c5.write(row['location'])
+                c6.markdown(
+                    f"<span class='lbadge lb-{row['status']}'>{row['status']}</span>",
+                    unsafe_allow_html=True,
+                )
+                if c_act.button("Szczegoly", key=f"btn_{row['id']}"):
+                    show_lead_dialog(row['id'])
 
     except Exception as e:
         st.error(f"Blad przy pobieraniu danych: {str(e)}")
@@ -430,11 +373,13 @@ with tab_firmy:
             leads_list = []
             for lead in company.leads:
                 leads_list.append({
-                    "Imię": lead.first_name or "—",
-                    "Nazwisko": lead.last_name or "—",
-                    "Stanowisko": lead.position or "—",
-                    "Email": lead.email,
-                    "Status": lead.status,
+                    "id": str(lead.id),
+                    "full_name": f"{lead.first_name or ''} {lead.last_name or ''}".strip() or "—",
+                    "email": lead.email,
+                    "company": company.name,
+                    "position": lead.position or "—",
+                    "location": lead.location or "—",
+                    "status": lead.status,
                 })
             companies_data.append({
                 "name": company.name,
@@ -462,16 +407,37 @@ with tab_firmy:
 
                     if co["leads"]:
                         st.markdown("**Kontakty w tej firmie:**")
-                        df_leads = pd.DataFrame(co["leads"])
-                        st.dataframe(
-                            df_leads,
-                            use_container_width=True,
-                            hide_index=True,
-                            column_config={
-                                "Status": st.column_config.TextColumn("Status", width="small"),
-                                "Stanowisko": st.column_config.TextColumn("Stanowisko", width="medium"),
-                            },
-                        )
+
+                        # Header row
+                        fh1, fh2, fh3, fh4, fh5, fh6, fh7 = st.columns([2, 2.5, 2, 3, 1.5, 1, 1])
+                        for col, label_h in zip(
+                            [fh1, fh2, fh3, fh4, fh5, fh6, fh7],
+                            ["Imie i Nazwisko", "Email", "Firma", "Stanowisko", "Lokalizacja", "Status", ""],
+                        ):
+                            col.markdown(
+                                f"<small style='font-weight:700;text-transform:uppercase;"
+                                f"letter-spacing:.06em;opacity:.45'>{label_h}</small>",
+                                unsafe_allow_html=True,
+                            )
+                        st.divider()
+
+                        for row in co["leads"]:
+                            c1, c2, c3, c4, c5, c6, c_act = st.columns([2, 2.5, 2, 3, 1.5, 1, 1])
+                            c1.markdown(f"**{h(row['full_name'])}**")
+                            c2.markdown(
+                                f"<span style='font-size:.88rem;font-family:ui-monospace,monospace;"
+                                f"color:#a3a8b8'>{h(row['email'])}</span>",
+                                unsafe_allow_html=True,
+                            )
+                            c3.write(row['company'])
+                            c4.write(row['position'])
+                            c5.write(row['location'])
+                            c6.markdown(
+                                f"<span class='lbadge lb-{row['status']}'>{row['status']}</span>",
+                                unsafe_allow_html=True,
+                            )
+                            if c_act.button("Szczegoly", key=f"btn_co_{row['id']}"):
+                                show_lead_dialog(row['id'])
                     else:
                         st.caption("Brak przypisanych kontaktów.")
 
