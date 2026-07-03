@@ -14,14 +14,14 @@ from datetime import datetime as dt
 import uuid as uuid_lib
 from html import escape as h
 
-STATUS_OPTIONS = ["new", "sent", "opened", "replied", "bounced"]
+STATUS_OPTIONS = ["nowy", "wysłany", "otwarty", "odpowiedział", "odbitka"]
 
 STATUS_BADGES = {
-    "new":     "new",
-    "sent":    "sent",
-    "opened":  "opened",
-    "replied": "replied",
-    "bounced": "bounced",
+    "nowy":     "nowy",
+    "wysłany":    "wysłany",
+    "otwarty":  "otwarty",
+    "odpowiedział": "odpowiedział",
+    "odbitka": "odbitka",
 }
 
 
@@ -188,13 +188,12 @@ def detect_column_mapping(df_columns):
 
 # 1. Konfiguracja strony (musi być pierwszą komendą Streamlit)
 st.set_page_config(
-    page_title="SALES BOT - PROIDEA",
+    page_title="SALES BOT",
     layout="wide"
 )
 
 # 2. Nagłówek
-st.title("SALES BOT - Centrum Dowodzenia")
-st.markdown("Witaj w swoim prywatnym systemie zarządzania bazą kontaktów (PostgreSQL).")
+st.title("SALES BOT")
 
 # --- SIDEBAR FILTERS ---
 with st.sidebar:
@@ -205,7 +204,7 @@ with st.sidebar:
     filter_location = st.text_input("Lokalizacja (miasto/kraj)", "")
     filter_status = st.multiselect(
         "Status leada",
-        options=["new", "sent", "opened", "replied", "bounced"],
+        options=["nowy", "wysłany", "otwarty", "odpowiedział", "odbitka"],
         default=[],
         placeholder="Wszystkie statusy",
     )
@@ -220,7 +219,7 @@ if 'lead_id' in st.query_params:
     st.session_state['_open_lead'] = st.query_params['lead_id']
     del st.query_params['lead_id']   # triggers one more rerun; dialog opens on that rerun
     st.stop()                        # halt current rerun here — next rerun will show dialog
-# Badge styles only — row layout is now native Streamlit
+# Badge styles + row hover effect
 st.markdown("""
 <style>
 .lbadge { display:inline-block; padding:3px 10px; border-radius:12px; font-size:0.78rem; font-weight:700; letter-spacing:0.03em; }
@@ -229,6 +228,21 @@ st.markdown("""
 .lb-opened  { background:#064e3b; color:#6ee7b7; }
 .lb-replied { background:#451a03; color:#fde68a; }
 .lb-bounced { background:#450a0a; color:#fca5a5; }
+
+/* Row hover — targets only blocks that contain our hidden marker */
+div[data-testid="stHorizontalBlock"]:has(.row-hover-marker) {
+    padding: 8px 16px;
+    border-radius: 8px;
+    transition: background-color 0.2s ease;
+    align-items: center;
+}
+div[data-testid="stHorizontalBlock"]:has(.row-hover-marker):hover {
+    background-color: #262936;
+}
+div[data-testid="stHorizontalBlock"]:has(.row-hover-marker) p {
+    margin-bottom: 0;
+}
+.row-hover-marker { display: none; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -332,7 +346,7 @@ with tab_kontakty:
             # Lead rows
             for row in leads_data:
                 c1, c2, c3, c4, c5, c6, c_act = st.columns([2, 2.5, 2, 3, 1.5, 1, 1])
-                c1.markdown(f"**{h(row['full_name'])}**")
+                c1.markdown(f"<span class='row-hover-marker'></span>**{h(row['full_name'])}**", unsafe_allow_html=True)
                 c2.markdown(
                     f"<span style='font-size:.88rem;font-family:ui-monospace,monospace;"
                     f"color:#a3a8b8'>{h(row['email'])}</span>",
@@ -423,7 +437,7 @@ with tab_firmy:
 
                         for row in co["leads"]:
                             c1, c2, c3, c4, c5, c6, c_act = st.columns([2, 2.5, 2, 3, 1.5, 1, 1])
-                            c1.markdown(f"**{h(row['full_name'])}**")
+                            c1.markdown(f"<span class='row-hover-marker'></span>**{h(row['full_name'])}**", unsafe_allow_html=True)
                             c2.markdown(
                                 f"<span style='font-size:.88rem;font-family:ui-monospace,monospace;"
                                 f"color:#a3a8b8'>{h(row['email'])}</span>",
