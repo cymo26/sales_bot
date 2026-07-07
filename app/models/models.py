@@ -206,6 +206,11 @@ class Lead(SQLModel, table=True):
         index=True,
         description="Lead's city or location (e.g., Warsaw, Krakow)"
     )
+    linkedin_url: Optional[str] = Field(
+        default=None,
+        nullable=True,
+        description="LinkedIn profile URL"
+    )
     company_id: Optional[uuid.UUID] = Field(
         default=None,
         foreign_key="companies.id",
