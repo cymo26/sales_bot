@@ -38,6 +38,18 @@ STATUS_CLASS = {
     "odbitka":      "lb-bounced",
 }
 
+AVAILABLE_TAGS = ["JDD", "OMH", "CONFIDENCE"]
+
+
+def render_tags(tags_str: str) -> str:
+    if not tags_str:
+        return ""
+    pills = []
+    for tag in [t.strip() for t in tags_str.split(",") if t.strip()]:
+        css = f"tag-{tag.lower()}" if tag.upper() in AVAILABLE_TAGS else "tag-default"
+        pills.append(f"<span class='tag-badge {css}'>{h(tag)}</span>")
+    return "".join(pills)
+
 
 @st.dialog("Profil Kontaktu", width="large")
 def show_lead_dialog(lead_id: str):
@@ -58,8 +70,17 @@ def show_lead_dialog(lead_id: str):
         # --- Header ---
         full_name = f"{lead.first_name or ''} {lead.last_name or ''}".strip() or lead.email
         company_name = lead.company.name if lead.company else "—"
-        st.subheader(full_name)
+
+        col_name, col_ln = st.columns([5, 1])
+        col_name.subheader(full_name)
+        if lead.linkedin_url:
+            col_ln.link_button("🔗 LinkedIn", lead.linkedin_url, use_container_width=True)
+
         st.caption(f"{lead.position or '—'}  ·  {company_name}")
+
+        if lead.tags:
+            st.markdown(render_tags(lead.tags), unsafe_allow_html=True)
+
         st.markdown("---")
 
         # --- Details row ---
@@ -213,12 +234,12 @@ def detect_column_mapping(df_columns):
 
 # 1. Konfiguracja strony (musi być pierwszą komendą Streamlit)
 st.set_page_config(
-    page_title="ZIPEK BOT",
+    page_title="SALES BOT",
     layout="wide"
 )
 
 # 2. Nagłówek
-st.title("ZIPEK BOT")
+st.title("SALES BOT")
 
 # --- LOAD DISTINCT FILTER VALUES ---
 try:
@@ -242,13 +263,6 @@ except Exception:
     _distinct_locs = []
     _distinct_positions = []
 
-with st.sidebar:
-    st.header("Filtry")
-    st.markdown("---")
-    if st.button("Wyczyść filtry", use_container_width=True):
-        for _k in ["f_search_k", "f_search_f", "f_location_k", "f_status_k", "f_position_k", "f_location_f"]:
-            st.session_state.pop(_k, None)
-        st.rerun()
 
 # 3. Podział na zakładki
 # Detect ?lead_id= from HTML row click BEFORE tabs are rendered.
@@ -261,7 +275,7 @@ if 'lead_id' in st.query_params:
 st.markdown("""
 <style>
 /* ═══════════════════════════════════════════════════════
-   ZIPEK BOT — Premium Dark Theme
+   SALES BOT — Premium Dark Theme
 ═══════════════════════════════════════════════════════ */
 
 /* ── Global layout ── */
@@ -363,9 +377,6 @@ div[data-testid="stMetricLabel"] p {
     margin-bottom: 2px !important;
 }
 
-/* ── Sidebar ── */
-section[data-testid="stSidebar"] > div { padding-top: 1.5rem; }
-section[data-testid="stSidebar"] { border-right: 1px solid rgba(255,255,255,.06); }
 
 /* ── Dividers ── */
 hr { border-color: rgba(255,255,255,.07) !important; margin: 4px 0 8px !important; }
@@ -375,6 +386,19 @@ div[data-testid="stTextInput"] input {
     background: rgba(255,255,255,.04) !important;
     border-radius: 8px !important;
 }
+
+/* ── Tag badges ── */
+.tag-badge {
+    display: inline-flex; align-items: center;
+    padding: 1px 7px; border-radius: 99px;
+    font-size: 0.62rem; font-weight: 700;
+    letter-spacing: 0.05em; text-transform: uppercase;
+    white-space: nowrap; margin: 1px 2px 1px 0;
+}
+.tag-jdd        { background: rgba(6,182,212,.12);   color: #22d3ee; border: 1px solid rgba(6,182,212,.30); }
+.tag-omh        { background: rgba(249,115,22,.12);  color: #fb923c; border: 1px solid rgba(249,115,22,.30); }
+.tag-confidence { background: rgba(34,197,94,.12);   color: #4ade80; border: 1px solid rgba(34,197,94,.30); }
+.tag-default    { background: rgba(148,163,184,.12); color: #94a3b8; border: 1px solid rgba(148,163,184,.30); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -391,11 +415,19 @@ with tab_kontakty:
     col_title, col_del_btn = st.columns([5, 1])
     col_title.header("Twoje Kontakty")
 
-    # Read filter values from previous render (session_state trick: widgets placed after query)
-    _search_k = st.session_state.get("f_search_k", "")
-    _filter_location_k = st.session_state.get("f_location_k", [])
-    _filter_status_k = st.session_state.get("f_status_k", [])
-    _filter_position_k = st.session_state.get("f_position_k", [])
+    # Staged filter state — only applied when user clicks "Zapisz filtry"
+    if "applied_filters" not in st.session_state:
+        st.session_state["applied_filters"] = {}
+    if "fk_reset" not in st.session_state:
+        st.session_state["fk_reset"] = 0
+    _af = st.session_state["applied_filters"]
+    _reset_key = st.session_state["fk_reset"]
+
+    _search_k = _af.get("search", "")
+    _filter_location_k = _af.get("location", [])
+    _filter_status_k = _af.get("status", [])
+    _filter_position_k = _af.get("position", [])
+    _filter_tags = _af.get("tags", [])
 
     try:
         from sqlalchemy.orm import joinedload
@@ -422,6 +454,7 @@ with tab_kontakty:
                 "company": lead.company.name if lead.company else "—",
                 "location": lead.location or "—",
                 "linkedin_url": lead.linkedin_url or "",
+                "tags": lead.tags or "",
                 "status": lead.status,
                 "notes": lead.notes or "",
                 "created_at": lead.created_at.strftime("%Y-%m-%d"),
@@ -453,18 +486,22 @@ with tab_kontakty:
         _avail_pos  = sorted({r["position"]  for r in _apply_exact(_text_filtered, loc=_filter_location_k, stat=_filter_status_k) if r["position"] != "—"})
         _avail_stat = sorted({r["status"]    for r in _apply_exact(_text_filtered, loc=_filter_location_k, pos=_filter_position_k)})
 
-        # 3. Drop any selected values that no longer exist in available options
-        for _fk, _av in [("f_location_k", _avail_locs), ("f_position_k", _avail_pos), ("f_status_k", _avail_stat)]:
-            if _fk in st.session_state:
-                st.session_state[_fk] = [v for v in st.session_state[_fk] if v in _av]
-        _filter_location_k = st.session_state.get("f_location_k", [])
-        _filter_position_k = st.session_state.get("f_position_k", [])
-        _filter_status_k   = st.session_state.get("f_status_k", [])
+        # 3. Drop applied filter values that no longer exist in available options
+        _filter_location_k = [v for v in _filter_location_k if v in _avail_locs]
+        _filter_position_k = [v for v in _filter_position_k if v in _avail_pos]
+        _filter_status_k   = [v for v in _filter_status_k if v in _avail_stat]
 
         # 4. Final dataset
         leads_data = _apply_exact(_text_filtered, loc=_filter_location_k, pos=_filter_position_k, stat=_filter_status_k)
 
-        # Active filter badges (shown after computation so values are always accurate)
+        # 5. Tag filter — keep leads that contain ANY of the selected tags
+        if _filter_tags:
+            def _has_tag(row, tags):
+                row_tags = {t.strip().upper() for t in row["tags"].split(",") if t.strip()}
+                return any(t.upper() in row_tags for t in tags)
+            leads_data = [r for r in leads_data if _has_tag(r, _filter_tags)]
+
+        # Active filter badges
         active_filters = []
         if _search_k:
             active_filters.append(f"Szukaj: *{_search_k}*")
@@ -474,6 +511,8 @@ with tab_kontakty:
             active_filters.append(f"Status: *{', '.join(_filter_status_k)}*")
         if _filter_position_k:
             active_filters.append(f"Stanowisko: *{', '.join(_filter_position_k)}*")
+        if _filter_tags:
+            active_filters.append(f"Tagi: *{', '.join(_filter_tags)}*")
         if active_filters:
             st.caption("Aktywne filtry: " + " | ".join(active_filters))
 
@@ -505,38 +544,62 @@ with tab_kontakty:
         col3.metric("Firmy", len(set(l["company"] for l in leads_data if l["company"] != "—")))
         col4.metric("Ze stanowiskiem", sum(1 for l in leads_data if l["position"] != "—"))
 
-        # Filter bar — always visible so user can clear filters even when results are empty
-        col_search, col_loc, col_pos, col_status, col_export = st.columns([2.5, 1.5, 2, 1.5, 1])
+        # Filter bar — staged: only applies when user clicks "Zapisz filtry"
+        col_search, col_loc, col_pos, col_status, col_tags = st.columns([2.5, 1.5, 2, 1.5, 1.5])
         col_search.text_input(
             "Szukaj",
+            value=_search_k,
             placeholder="Imię nazwisko, email, firma...",
-            key="f_search_k",
+            key=f"f_search_{_reset_key}",
             label_visibility="collapsed",
         )
         col_loc.multiselect(
             "Lokalizacja",
             options=_avail_locs,
-            default=[],
+            default=_filter_location_k,
             placeholder="Lokalizacja",
-            key="f_location_k",
+            key=f"f_location_{_reset_key}",
             label_visibility="collapsed",
         )
         col_pos.multiselect(
             "Stanowisko",
             options=_avail_pos,
-            default=[],
+            default=_filter_position_k,
             placeholder="Stanowisko",
-            key="f_position_k",
+            key=f"f_position_{_reset_key}",
             label_visibility="collapsed",
         )
         col_status.multiselect(
             "Status",
             options=_avail_stat,
-            default=[],
+            default=_filter_status_k,
             placeholder="Status",
-            key="f_status_k",
+            key=f"f_status_{_reset_key}",
             label_visibility="collapsed",
         )
+        col_tags.multiselect(
+            "Tagi",
+            options=AVAILABLE_TAGS,
+            default=_filter_tags,
+            placeholder="Tagi",
+            key=f"f_tags_{_reset_key}",
+            label_visibility="collapsed",
+        )
+
+        col_save, col_clear, col_export = st.columns([1.5, 1.5, 1])
+        if col_save.button("Zapisz filtry", type="primary", use_container_width=True, key="btn_save_filters"):
+            st.session_state["applied_filters"] = {
+                "search":   st.session_state.get(f"f_search_{_reset_key}", ""),
+                "location": st.session_state.get(f"f_location_{_reset_key}", []),
+                "status":   st.session_state.get(f"f_status_{_reset_key}", []),
+                "position": st.session_state.get(f"f_position_{_reset_key}", []),
+                "tags":     st.session_state.get(f"f_tags_{_reset_key}", []),
+            }
+            st.rerun()
+        if col_clear.button("Wyczyść filtry", use_container_width=True, key="btn_clear_filters"):
+            st.session_state["applied_filters"] = {}
+            st.session_state["fk_reset"] = _reset_key + 1
+            st.rerun()
 
         export_df = pd.DataFrame([
             {
@@ -568,11 +631,88 @@ with tab_kontakty:
         else:
             st.markdown("---")
 
+            # ── Oznacz leada ──────────────────────────────────────────
+            with st.expander("Oznacz leada", expanded=False):
+                st.caption("Akcje dotyczą wszystkich przefiltrowanych leadów — obecnie **" + str(len(leads_data)) + "**.")
+
+                # — Tagi —
+                ma_col, ma_btn_col = st.columns([4, 1])
+                bulk_tags = ma_col.multiselect(
+                    "Dodaj tagi",
+                    options=AVAILABLE_TAGS,
+                    placeholder="Wybierz tagi do przypisania...",
+                    key="bulk_tags",
+                    label_visibility="collapsed",
+                )
+                apply_clicked = ma_btn_col.button(
+                    f"Przypisz tagi ({len(leads_data)})",
+                    type="primary",
+                    key="bulk_tag_btn",
+                    disabled=not bulk_tags,
+                    use_container_width=True,
+                )
+                if apply_clicked and bulk_tags:
+                    _tag_session = next(get_session_sync())
+                    try:
+                        _updated = 0
+                        for _row in leads_data:
+                            _lead_obj = _tag_session.query(Lead).filter(
+                                Lead.id == uuid_lib.UUID(_row["id"])
+                            ).first()
+                            if _lead_obj:
+                                existing_tags = set(_lead_obj.tags.split(",")) if _lead_obj.tags else set()
+                                merged_tags = existing_tags | set(bulk_tags)
+                                _lead_obj.tags = ",".join(sorted(merged_tags))
+                                _updated += 1
+                        _tag_session.commit()
+                        st.success(f"Tagi {', '.join(sorted(bulk_tags))} przypisane do {_updated} leadów.")
+                    finally:
+                        _tag_session.close()
+                    st.rerun()
+
+                st.markdown("<hr style='margin:8px 0;border-color:rgba(255,255,255,.07)'>", unsafe_allow_html=True)
+
+                # — Status —
+                ms_col, ms_btn_col = st.columns([4, 1])
+                bulk_status = ms_col.selectbox(
+                    "Zmień status",
+                    options=[""] + STATUS_OPTIONS,
+                    index=0,
+                    format_func=lambda x: "Wybierz nowy status dla wszystkich..." if x == "" else x,
+                    key="bulk_status",
+                    label_visibility="collapsed",
+                )
+                apply_status_clicked = ms_btn_col.button(
+                    f"Zmień status ({len(leads_data)})",
+                    type="primary",
+                    key="bulk_status_btn",
+                    disabled=not bulk_status,
+                    use_container_width=True,
+                )
+                if apply_status_clicked and bulk_status:
+                    _st_session = next(get_session_sync())
+                    try:
+                        _updated = 0
+                        for _row in leads_data:
+                            _lead_obj = _st_session.query(Lead).filter(
+                                Lead.id == uuid_lib.UUID(_row["id"])
+                            ).first()
+                            if _lead_obj:
+                                _lead_obj.status = bulk_status
+                                _lead_obj.updated_at = dt.utcnow()
+                                _updated += 1
+                        _st_session.commit()
+                        st.success(f"Status zmieniony na '{bulk_status}' dla {_updated} leadów.")
+                    finally:
+                        _st_session.close()
+                    st.rerun()
+            # ──────────────────────────────────────────────────────────
+
             # Column header row
-            h0, h1, h2, h3, h4, h5, h6, h_li, h7 = st.columns([0.4, 2, 2.5, 2, 2.5, 1.5, 1, 0.8, 1])
+            h0, h1, h2, h3, h4, h5, h6, h_tags, h_li, h7 = st.columns([0.4, 2, 2.3, 1.8, 2, 1.3, 1, 1.5, 0.8, 1])
             for col, label in zip(
-                [h0, h1, h2, h3, h4, h5, h6, h_li, h7],
-                ["", "Imie i Nazwisko", "Email", "Firma", "Stanowisko", "Lokalizacja", "Status", "LN", ""],
+                [h0, h1, h2, h3, h4, h5, h6, h_tags, h_li, h7],
+                ["", "Imie i Nazwisko", "Email", "Firma", "Stanowisko", "Lokalizacja", "Status", "Tagi", "LN", ""],
             ):
                 col.markdown(
                     f"<small style='font-weight:700;text-transform:uppercase;"
@@ -583,7 +723,7 @@ with tab_kontakty:
 
             # Lead rows
             for row in leads_data:
-                c0, c1, c2, c3, c4, c5, c6, c_li, c_act = st.columns([0.4, 2, 2.5, 2, 2.5, 1.5, 1, 0.8, 1])
+                c0, c1, c2, c3, c4, c5, c6, c_tags, c_li, c_act = st.columns([0.4, 2, 2.3, 1.8, 2, 1.3, 1, 1.5, 0.8, 1])
                 c0.checkbox("", key=f"del_{row['id']}", label_visibility="collapsed")
                 c1.markdown(f"<span class='row-hover-marker'></span>**{h(row['full_name'])}**", unsafe_allow_html=True)
                 c2.markdown(
@@ -598,6 +738,8 @@ with tab_kontakty:
                     f"<span class='lbadge {STATUS_CLASS.get(row['status'], 'lb-nowy')}'>{h(row['status'])}</span>",
                     unsafe_allow_html=True,
                 )
+                tags_html = render_tags(row['tags'])
+                c_tags.markdown(tags_html if tags_html else "<span style='opacity:.2'>—</span>", unsafe_allow_html=True)
                 if row['linkedin_url']:
                     c_li.link_button("🔗", row['linkedin_url'], use_container_width=True)
                 else:
@@ -611,21 +753,56 @@ with tab_kontakty:
 # --- ZAKŁADKA 2: BAZA FIRM ---
 with tab_firmy:
     st.header("Baza Firm (Account-Based View)")
-    col_fsearch, col_floc = st.columns([3, 2])
-    filter_search_f = col_fsearch.text_input(
+
+    # Staged filter state for Baza Firm
+    if "applied_filters_f" not in st.session_state:
+        st.session_state["applied_filters_f"] = {}
+    if "fk_reset_f" not in st.session_state:
+        st.session_state["fk_reset_f"] = 0
+    _af_f = st.session_state["applied_filters_f"]
+    _reset_key_f = st.session_state["fk_reset_f"]
+
+    filter_search_f = _af_f.get("search", "")
+    filter_location_f = _af_f.get("location", [])
+    filter_tags_f = _af_f.get("tags", [])
+
+    col_fsearch, col_floc, col_ftags = st.columns([3, 2, 2])
+    col_fsearch.text_input(
         "Szukaj po nazwie firmy",
+        value=filter_search_f,
         placeholder="np. Acme, Comarch...",
-        key="f_search_f",
+        key=f"f_search_f_{_reset_key_f}",
         label_visibility="collapsed",
     )
-    filter_location_f = col_floc.multiselect(
+    col_floc.multiselect(
         "Lokalizacja",
         options=_distinct_locs,
-        default=[],
+        default=filter_location_f,
         placeholder="Lokalizacja",
-        key="f_location_f",
+        key=f"f_location_f_{_reset_key_f}",
         label_visibility="collapsed",
     )
+    col_ftags.multiselect(
+        "Filtruj po tagu",
+        options=AVAILABLE_TAGS,
+        default=filter_tags_f,
+        placeholder="Filtruj po tagu",
+        key=f"f_tags_f_{_reset_key_f}",
+        label_visibility="collapsed",
+    )
+
+    col_fsave, col_fclear = st.columns([1.5, 1.5])
+    if col_fsave.button("Zapisz filtry", type="primary", use_container_width=True, key="btn_save_filters_f"):
+        st.session_state["applied_filters_f"] = {
+            "search":   st.session_state.get(f"f_search_f_{_reset_key_f}", ""),
+            "location": st.session_state.get(f"f_location_f_{_reset_key_f}", []),
+            "tags":     st.session_state.get(f"f_tags_f_{_reset_key_f}", []),
+        }
+        st.rerun()
+    if col_fclear.button("Wyczyść filtry", use_container_width=True, key="btn_clear_filters_f"):
+        st.session_state["applied_filters_f"] = {}
+        st.session_state["fk_reset_f"] = _reset_key_f + 1
+        st.rerun()
 
     try:
         from sqlalchemy.orm import joinedload as jl
@@ -652,6 +829,7 @@ with tab_firmy:
                     "position": lead.position or "—",
                     "location": lead.location or "—",
                     "linkedin_url": lead.linkedin_url or "",
+                    "tags": lead.tags or "",
                     "status": lead.status,
                 })
             companies_data.append({
@@ -670,22 +848,30 @@ with tab_firmy:
         else:
             st.caption(f"Znaleziono **{len(companies_data)}** firm(y).")
             for co in companies_data:
-                lead_count = len(co["leads"])
-                label = f"{co['name']} — {co['domain']}  ·  {lead_count} kontakt(ow)"
+                # Apply tag filter to this company's leads
+                co_leads = co["leads"]
+                if filter_tags_f:
+                    def _lead_has_tag(lead_row, tags):
+                        row_tags = {t.strip().upper() for t in lead_row["tags"].split(",") if t.strip()}
+                        return any(t.upper() in row_tags for t in tags)
+                    co_leads = [l for l in co_leads if _lead_has_tag(l, filter_tags_f)]
+
+                lead_count = len(co_leads)
+                label = f"{co['name']} — {co['domain']}  ·  {lead_count} kontakt(ów)"
                 with st.expander(label, expanded=False):
                     meta_col1, meta_col2, meta_col3 = st.columns(3)
                     meta_col1.markdown(f"**Branża:** {co['industry']}")
                     meta_col2.markdown(f"**Lokalizacja:** {co['location']}")
                     meta_col3.markdown(f"**Wielkość:** {co['size_range']}")
 
-                    if co["leads"]:
+                    if co_leads:
                         st.markdown("**Kontakty w tej firmie:**")
 
                         # Header row
-                        fh1, fh2, fh3, fh4, fh5, fh6, fh_li, fh7 = st.columns([2, 2.5, 2, 2.5, 1.5, 1, 0.8, 1])
+                        fh1, fh2, fh3, fh4, fh5, fh6, fh_tags, fh_li, fh7 = st.columns([2, 2.3, 1.8, 2, 1.3, 1, 1.5, 0.8, 1])
                         for col, label_h in zip(
-                            [fh1, fh2, fh3, fh4, fh5, fh6, fh_li, fh7],
-                            ["Imie i Nazwisko", "Email", "Firma", "Stanowisko", "Lokalizacja", "Status", "LN", ""],
+                            [fh1, fh2, fh3, fh4, fh5, fh6, fh_tags, fh_li, fh7],
+                            ["Imie i Nazwisko", "Email", "Firma", "Stanowisko", "Lokalizacja", "Status", "Tagi", "LN", ""],
                         ):
                             col.markdown(
                                 f"<small style='font-weight:700;text-transform:uppercase;"
@@ -694,8 +880,8 @@ with tab_firmy:
                             )
                         st.divider()
 
-                        for row in co["leads"]:
-                            c1, c2, c3, c4, c5, c6, c_li, c_act = st.columns([2, 2.5, 2, 2.5, 1.5, 1, 0.8, 1])
+                        for row in co_leads:
+                            c1, c2, c3, c4, c5, c6, c_tags, c_li, c_act = st.columns([2, 2.3, 1.8, 2, 1.3, 1, 1.5, 0.8, 1])
                             c1.markdown(f"<span class='row-hover-marker'></span>**{h(row['full_name'])}**", unsafe_allow_html=True)
                             c2.markdown(
                                 f"<span style='font-size:.88rem;font-family:ui-monospace,monospace;"
@@ -709,6 +895,8 @@ with tab_firmy:
                                 f"<span class='lbadge {STATUS_CLASS.get(row['status'], 'lb-nowy')}'>{h(row['status'])}</span>",
                                 unsafe_allow_html=True,
                             )
+                            tags_html = render_tags(row['tags'])
+                            c_tags.markdown(tags_html if tags_html else "<span style='opacity:.2'>—</span>", unsafe_allow_html=True)
                             if row['linkedin_url']:
                                 c_li.link_button("🔗", row['linkedin_url'], use_container_width=True)
                             else:
@@ -716,7 +904,7 @@ with tab_firmy:
                             if c_act.button("Szczegóły", key=f"btn_co_{row['id']}"):
                                 show_lead_dialog(row['id'])
                     else:
-                        st.caption("Brak przypisanych kontaktów.")
+                        st.caption("Brak kontaktów pasujących do filtrów.")
 
     except Exception as e:
         st.error(f"Błąd przy pobieraniu firm: {str(e)}")
@@ -728,16 +916,20 @@ with tab_import:
     st.markdown("Wgraj plik CSV (np. z Eventory lub Livespace), aby dodać rekordy do bazy.")
     
     uploaded_file = st.file_uploader("Przeciągnij i upuść plik CSV tutaj", type=["csv"])
-    
+
     if uploaded_file is not None:
-        # Odczyt pliku do pandas DataFrame (tylko do podglądu)
         df = pd.read_csv(uploaded_file)
-        
         st.success(f"Pomyślnie wczytano plik: {uploaded_file.name}")
         st.markdown(f"**Podgląd pierwszych 5 wierszy z {len(df)}**")
         st.dataframe(df.head())
-        
-    # Przycisk, który docelowo uruchomi Pydantic i zapis do PostgreSQL
+
+    selected_import_tags = st.multiselect(
+        "Przypisz tagi do importowanych leadów:",
+        options=AVAILABLE_TAGS,
+        placeholder="Opcjonalne — wybierz tagi dla tej partii importu",
+        key="import_tags",
+    )
+
     if st.button("Zapisz do bazy PostgreSQL", type="primary"):
         if df is None or df.empty:
             st.error("Proszę najpierw wczytać plik CSV")
@@ -800,7 +992,11 @@ with tab_import:
                         # Add company_id to lead data if found
                         if company_id:
                             lead_data['company_id'] = company_id
-                        
+
+                        # Assign import-time tags
+                        if selected_import_tags:
+                            lead_data['tags'] = ",".join(selected_import_tags)
+
                         if 'email' in lead_data:  # Email is required
                             new_lead = Lead(**lead_data)
                             session.add(new_lead)

@@ -211,6 +211,11 @@ class Lead(SQLModel, table=True):
         nullable=True,
         description="LinkedIn profile URL"
     )
+    tags: Optional[str] = Field(
+        default=None,
+        nullable=True,
+        description="Comma-separated event tags e.g. 'OMH,JDD,CONFIDENCE'"
+    )
     company_id: Optional[uuid.UUID] = Field(
         default=None,
         foreign_key="companies.id",
