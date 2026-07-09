@@ -29,10 +29,12 @@ class Company(SQLModel, table=True):
         index=True,
         description="Company name"
     )
-    domain: str = Field(
+    domain: Optional[str] = Field(
+        default=None,
         unique=True,
         index=True,
-        description="Primary deduplication key (e.g., 'comarch.pl')"
+        nullable=True,
+        description="Primary deduplication key (e.g., 'comarch.pl'); optional — not every source knows the domain"
     )
     industry: Optional[str] = Field(
         default=None,
@@ -48,7 +50,7 @@ class Company(SQLModel, table=True):
     location: Optional[str] = Field(
         default=None,
         nullable=True,
-        description="Company location/headquarters"
+        description="Comma-separated unique cities aggregated from this company's leads"
     )
     created_at: datetime = Field(
         default_factory=datetime.utcnow,

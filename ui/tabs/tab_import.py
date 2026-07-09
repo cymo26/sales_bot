@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 
 from db import queries
-from ui.constants import AVAILABLE_TAGS
+from ui.constants import ADD_NEW_INDUSTRY, AVAILABLE_TAGS
 
 # Recognized CSV header variants (normalized: lowercase, spaces→underscores).
 _COLUMN_PATTERNS = {
@@ -36,6 +36,10 @@ _COLUMN_PATTERNS = {
     "company": [
         "company_name", "companyname", "company", "firma", "organisation",
         "organization", "employer", "organization_name",
+    ],
+    "company_domain": [
+        "company_domain", "companydomain", "domain", "company_website",
+        "website",
     ],
     "location": [
         "city", "miasto", "lokalizacja", "location", "loc", "region", "kraj",
@@ -102,11 +106,37 @@ def render():
         key="import_tags",
     )
 
+    # Batch industry — same Smart Select as the Quick Add dialog. Applied to
+    # companies of this import that have no industry yet (never overwrites).
+    try:
+        industries = queries.fetch_industries()
+    except Exception:
+        industries = list(queries.DEFAULT_INDUSTRIES)
+    industry_choice = st.selectbox(
+        "Przypisz branżę firmom z tego importu:",
+        options=[""] + industries + [ADD_NEW_INDUSTRY],
+        format_func=lambda opt: "Opcjonalne — wybierz branżę dla firm z tej partii" if opt == "" else opt,
+        key="import_industry",
+    )
+    selected_industry = industry_choice
+    if industry_choice == ADD_NEW_INDUSTRY:
+        selected_industry = (st.text_input(
+            "Wpisz nazwę nowej branży",
+            key="import_industry_new",
+            placeholder="np. GreenTech / Energy",
+        ) or "").strip()
+    st.caption("Branża zostanie ustawiona tylko firmom, które jeszcze jej nie mają — "
+               "istniejące wartości nie są nadpisywane.")
+
     if not st.button("Zapisz do bazy PostgreSQL", type="primary"):
         return
 
     if df is None or df.empty:
         st.error("Proszę najpierw wczytać plik CSV")
+        return
+
+    if industry_choice == ADD_NEW_INDUSTRY and not selected_industry:
+        st.error("Wpisz nazwę nowej branży lub wybierz istniejącą z listy.")
         return
 
     mapping = detect_column_mapping(df.columns)
@@ -119,7 +149,7 @@ def render():
 
     try:
         with st.spinner(f"Importuję {len(records)} rekordów..."):
-            summary = queries.import_leads(records, selected_tags)
+            summary = queries.import_leads(records, selected_tags, selected_industry)
     except Exception as e:
         st.error(f"Import nie powiódł się — żadne dane nie zostały zapisane: {e}")
         return
@@ -130,5 +160,9 @@ def render():
         st.warning(f"Pominieto {summary['skipped_duplicates']} lead(ow) (duplikaty)")
     if summary["skipped_invalid"]:
         st.warning(f"Pominieto {summary['skipped_invalid']} wiersz(y) bez adresu email")
+    if summary["industry_set"]:
+        st.success(f"Ustawiono branżę '{selected_industry}' dla {summary['industry_set']} firm(y)")
+    if summary["industry_kept"]:
+        st.info(f"{summary['industry_kept']} firm(y) miało już inną branżę — pozostawiono bez zmian")
     if not summary["added"]:
         st.info("Nie dodano żadnych nowych rekordów.")

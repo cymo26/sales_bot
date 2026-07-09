@@ -10,6 +10,9 @@ from db.queries import CANONICAL_STATUSES
 
 AVAILABLE_TAGS = ["JDD", "OMH", "CONFIDENCE"]
 
+# Trailing option of every industry select; reveals a free-text input.
+ADD_NEW_INDUSTRY = "+ Dodaj nową branżę..."
+
 STATUS_OPTIONS = list(CANONICAL_STATUSES)  # ["new", "sent", "opened", "replied", "bounced"]
 
 STATUS_LABELS = {
