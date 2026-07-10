@@ -132,6 +132,15 @@ div[data-testid="stTextInput"] input {
 .tag-confidence { background: rgba(34,197,94,.12);   color: #4ade80; border: 1px solid rgba(34,197,94,.30); }
 .tag-default    { background: rgba(148,163,184,.12); color: #94a3b8; border: 1px solid rgba(148,163,184,.30); }
 
+/* ── Text truncation (long names/emails/companies in table cells) ── */
+.truncate-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+    max-width: 100%;
+}
+
 /* ── Pagination bar ── */
 .page-indicator {
     text-align: center;

@@ -113,6 +113,8 @@ def bootstrap() -> dict:
         # Company.domain became optional (Clay imports may lack a domain);
         # DROP NOT NULL is a no-op when the column is already nullable.
         session.execute(text("ALTER TABLE companies ALTER COLUMN domain DROP NOT NULL"))
+        # Lead.email became optional (imports keep leads without an address).
+        session.execute(text("ALTER TABLE leads ALTER COLUMN email DROP NOT NULL"))
         for legacy, canonical in LEGACY_STATUS_MAP.items():
             result = session.execute(
                 update(Lead)
@@ -143,8 +145,11 @@ def _fold_sql(column):
     return func.unaccent(lowered) if _unaccent_available() else lowered
 
 
-def _lead_conditions(search="", locations=(), positions=(), statuses=(), tags=()):
-    """WHERE clauses for lead queries. Callers must outerjoin Company for search."""
+def _lead_conditions(search="", locations=(), positions=(), statuses=(), tags=(),
+                     companies=(), email_only=False):
+    """WHERE clauses for lead queries. Callers must outerjoin Company for the
+    company filter. Search covers name + email only (company has its own
+    dropdown filter)."""
     conditions = []
     if search:
         term = f"%{_fold_py(search) if _unaccent_available() else search.lower()}%"
@@ -152,7 +157,6 @@ def _lead_conditions(search="", locations=(), positions=(), statuses=(), tags=()
         conditions.append(or_(
             _fold_sql(full_name).like(term),
             _fold_sql(Lead.email).like(term),
-            _fold_sql(Company.name).like(term),
         ))
     if locations:
         conditions.append(Lead.location.in_(locations))
@@ -164,6 +168,11 @@ def _lead_conditions(search="", locations=(), positions=(), statuses=(), tags=()
         conditions.append(
             func.string_to_array(Lead.tags, ",").op("&&")(array(list(tags)))
         )
+    if companies:
+        conditions.append(Company.name.in_(companies))
+    if email_only:
+        conditions.append(Lead.email.isnot(None))
+        conditions.append(Lead.email != "")
     return conditions
 
 
@@ -172,8 +181,9 @@ def _lead_row(lead: Lead) -> dict:
         "id": str(lead.id),
         "first_name": lead.first_name or "",
         "last_name": lead.last_name or "",
-        "full_name": f"{lead.first_name or ''} {lead.last_name or ''}".strip() or "—",
-        "email": lead.email,
+        "full_name": f"{lead.first_name or ''} {lead.last_name or ''}".strip()
+                     or lead.email or "—",
+        "email": lead.email or "—",
         "position": lead.position or "—",
         "company": lead.company.name if lead.company else "—",
         "location": lead.location or "—",
@@ -188,9 +198,11 @@ def _lead_row(lead: Lead) -> dict:
 # ── Leads: paginated fetch, metrics, filter options ──────────────────────────
 
 @st.cache_data(show_spinner=False)
-def fetch_leads_page(page=1, search="", locations=(), positions=(), statuses=(), tags=()):
+def fetch_leads_page(page=1, search="", locations=(), positions=(), statuses=(), tags=(),
+                     companies=(), email_only=False):
     """One page of leads matching the filters. Returns {rows, total, pages, page}."""
-    conditions = _lead_conditions(search, locations, positions, statuses, tags)
+    conditions = _lead_conditions(search, locations, positions, statuses, tags,
+                                  companies=companies, email_only=email_only)
     with db_session() as session:
         total = session.execute(
             select(func.count(Lead.id))
@@ -217,9 +229,11 @@ def fetch_leads_page(page=1, search="", locations=(), positions=(), statuses=(),
 
 
 @st.cache_data(show_spinner=False)
-def fetch_lead_metrics(search="", locations=(), positions=(), statuses=(), tags=()):
+def fetch_lead_metrics(search="", locations=(), positions=(), statuses=(), tags=(),
+                       companies=(), email_only=False):
     """Summary metrics for the filtered set — one aggregate query, no row loading."""
-    conditions = _lead_conditions(search, locations, positions, statuses, tags)
+    conditions = _lead_conditions(search, locations, positions, statuses, tags,
+                                  companies=companies, email_only=email_only)
     with db_session() as session:
         total, new, companies, with_position = session.execute(
             select(
@@ -239,11 +253,12 @@ def fetch_lead_metrics(search="", locations=(), positions=(), statuses=(), tags=
 
 
 @st.cache_data(show_spinner=False)
-def fetch_lead_filter_options(search="", locations=(), positions=(), statuses=()):
+def fetch_lead_filter_options(search="", locations=(), positions=(), statuses=(),
+                              companies=(), email_only=False):
     """Cascading DISTINCT options: each list ignores its own filter so already
     selected values stay visible and combinable."""
     def distinct_of(column, **active):
-        conditions = _lead_conditions(search=search, **active)
+        conditions = _lead_conditions(search=search, email_only=email_only, **active)
         with db_session() as session:
             values = session.execute(
                 select(func.distinct(column))
@@ -255,9 +270,14 @@ def fetch_lead_filter_options(search="", locations=(), positions=(), statuses=()
         return list(values)
 
     return {
-        "locations": distinct_of(Lead.location, positions=positions, statuses=statuses),
-        "positions": distinct_of(Lead.position, locations=locations, statuses=statuses),
-        "statuses": distinct_of(Lead.status, locations=locations, positions=positions),
+        "locations": distinct_of(Lead.location, positions=positions,
+                                 statuses=statuses, companies=companies),
+        "positions": distinct_of(Lead.position, locations=locations,
+                                 statuses=statuses, companies=companies),
+        "statuses": distinct_of(Lead.status, locations=locations,
+                                positions=positions, companies=companies),
+        "companies": distinct_of(Company.name, locations=locations,
+                                 positions=positions, statuses=statuses),
     }
 
 
@@ -275,33 +295,28 @@ def fetch_lead_detail(lead_id: str):
         row = _lead_row(lead)
         row["industry"] = lead.company.industry if lead.company else None
         row["size_range"] = lead.company.size_range if lead.company else None
+        row["company_id"] = str(lead.company_id) if lead.company_id else None
         return row
 
 
-def fetch_leads_for_export(search="", locations=(), positions=(), statuses=(), tags=()):
-    """The FULL filtered set, columns matching the outreach CSV. This is the one
+def fetch_leads_for_export(search="", locations=(), positions=(), statuses=(), tags=(),
+                           companies=(), email_only=False):
+    """The FULL filtered set for the outreach CSV — deliberately just
+    First Name + Email (all the mail-merge script needs). This is the one
     sanctioned exception to pagination: it never renders, runs only on an
     explicit export click, and selects plain tuples (no ORM objects)."""
-    conditions = _lead_conditions(search, locations, positions, statuses, tags)
+    conditions = _lead_conditions(search, locations, positions, statuses, tags,
+                                  companies=companies, email_only=email_only)
     with db_session() as session:
         rows = session.execute(
-            select(Lead.email, Lead.first_name, Lead.last_name, Company.name,
-                   Lead.position, Lead.location, Lead.status)
+            select(Lead.first_name, Lead.email)
             .outerjoin(Company, Lead.company_id == Company.id)
             .where(*conditions)
             .order_by(Lead.created_at.desc(), Lead.id)
         ).all()
     return [
-        {
-            "Email": email,
-            "First Name": first or "",
-            "Last Name": last or "",
-            "Company": company or "—",
-            "Position": position or "—",
-            "Location": location or "—",
-            "Status": status,
-        }
-        for email, first, last, company, position, location, status in rows
+        {"First Name": first or "", "Email": email or ""}
+        for first, email in rows
     ]
 
 
@@ -356,6 +371,7 @@ def fetch_companies_page(page=1, search="", locations=(), tags=()):
 
         rows = [
             {
+                "id": str(co.id),
                 "name": co.name,
                 "domain": co.domain or "—",
                 "industry": co.industry or "—",
@@ -599,18 +615,21 @@ def delete_leads(lead_ids: list) -> int:
 
 # ── Writes: bulk actions on the whole filtered set ───────────────────────────
 
-def _filtered_lead_ids_query(search, locations, positions, statuses, tags):
+def _filtered_lead_ids_query(search, locations, positions, statuses, tags,
+                             companies=(), email_only=False):
     return (
         select(Lead.id)
         .outerjoin(Company, Lead.company_id == Company.id)
-        .where(*_lead_conditions(search, locations, positions, statuses, tags))
+        .where(*_lead_conditions(search, locations, positions, statuses, tags,
+                                  companies=companies, email_only=email_only))
     )
 
 
 def bulk_set_status(new_status: str, search="", locations=(), positions=(),
-                    statuses=(), tags=()) -> int:
+                    statuses=(), tags=(), companies=(), email_only=False) -> int:
     """Single UPDATE ... WHERE id IN (filtered set). No row loading at all."""
-    ids_query = _filtered_lead_ids_query(search, locations, positions, statuses, tags)
+    ids_query = _filtered_lead_ids_query(search, locations, positions, statuses, tags,
+                                         companies=companies, email_only=email_only)
     with db_session() as session:
         result = session.execute(
             update(Lead)
@@ -625,10 +644,11 @@ def bulk_set_status(new_status: str, search="", locations=(), positions=(),
 
 
 def bulk_add_tags(new_tags: list, search="", locations=(), positions=(),
-                  statuses=(), tags=()) -> int:
+                  statuses=(), tags=(), companies=(), email_only=False) -> int:
     """Merge tags into every filtered lead: one SELECT, one executemany UPDATE
     keyed by primary key, one commit."""
-    ids_query = _filtered_lead_ids_query(search, locations, positions, statuses, tags)
+    ids_query = _filtered_lead_ids_query(search, locations, positions, statuses, tags,
+                                         companies=companies, email_only=email_only)
     now = _utcnow()
     with db_session() as session:
         rows = session.execute(
@@ -660,10 +680,12 @@ def import_leads(records: list, tags: list, industry: str = None) -> dict:
     `industry` (optional) is applied to every company in the batch that has no
     industry yet; companies already holding a DIFFERENT industry are left
     untouched and counted (quiet bulk semantics — no interactive conflicts).
+    Leads WITHOUT an email are imported too — email is only the dedupe key
+    when present, so such rows can't be checked against duplicates.
     Returns {'added', 'skipped_duplicates', 'skipped_invalid',
              'industry_set', 'industry_kept'}."""
     industry = (industry or "").strip()
-    valid = [r for r in records if r.get("email")]
+    valid = [r for r in records if r]  # only completely empty rows are invalid
     skipped_invalid = len(records) - len(valid)
 
     if not valid:
@@ -672,17 +694,22 @@ def import_leads(records: list, tags: list, industry: str = None) -> dict:
                 "industry_set": 0, "industry_kept": 0}
 
     tag_value = ",".join(sorted(set(tags))) if tags else None
+    emails = [r["email"] for r in valid if r.get("email")]
 
     with db_session() as session:
-        existing = set(session.execute(
-            select(Lead.email).where(Lead.email.in_([r["email"] for r in valid]))
-        ).scalars().all())
+        existing = set()
+        if emails:
+            existing = set(session.execute(
+                select(Lead.email).where(Lead.email.in_(emails))
+            ).scalars().all())
 
         to_add, seen = [], set()
         for record in valid:
-            if record["email"] in existing or record["email"] in seen:
+            email = record.get("email")
+            if email and (email in existing or email in seen):
                 continue
-            seen.add(record["email"])
+            if email:
+                seen.add(email)
             to_add.append(dict(record))
 
         # Companies: name → real domain when the CSV provides one. A row with a

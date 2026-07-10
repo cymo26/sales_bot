@@ -9,7 +9,7 @@ import streamlit as st
 
 from db import queries
 from ui.components import render_tags
-from ui.constants import STATUS_OPTIONS, status_label
+from ui.constants import STATUS_OPTIONS, TAB_FIRMY, status_label
 
 
 @st.dialog("Profil Kontaktu", width="large")
@@ -41,6 +41,21 @@ def show_lead_dialog(lead_id: str):
     col1.metric("Email", lead["email"])
     col2.metric("Firma", lead["company"])
     col3.metric("Lokalizacja", lead["location"])
+
+    # Cross-navigation: close the dialog, switch to Baza Firm with the search
+    # filter pre-set to this company's name, so only it shows up — expanded.
+    if lead["company_id"] and col2.button(
+        "🏢 Przejdź do profilu firmy",
+        key=f"goto_company_{lead_id}",
+        use_container_width=True,
+    ):
+        st.session_state["auto_expand_company_id"] = lead["company_id"]
+        st.session_state["active_tab"] = TAB_FIRMY
+        st.session_state["applied_filters_f"] = {"search": lead["company"]}
+        # Bump the widget-key generation so the search box shows the new value.
+        st.session_state["fk_reset_f"] = st.session_state.get("fk_reset_f", 0) + 1
+        st.session_state["page_firmy"] = 1
+        st.rerun()
 
     col4, col5, col6 = st.columns(3)
     col4.metric("Status", status_label(lead["status"]))

@@ -39,6 +39,38 @@ def _small_caps(col, label: str) -> None:
     )
 
 
+def _set_all_selection(lead_ids) -> None:
+    """on_change of the master checkbox: mirror its value onto every row
+    checkbox of the current page (runs before widgets render, so it sticks)."""
+    value = st.session_state.get("select_all_leads", False)
+    for lead_id in lead_ids:
+        st.session_state[f"del_{lead_id}"] = value
+
+
+def render_select_all(lead_ids) -> None:
+    """Clearly labelled master checkbox, rendered above the table (the header
+    column is too narrow for a visible label)."""
+    st.checkbox(
+        "Zaznacz wszystkie",
+        key="select_all_leads",
+        help="Zaznacza / odznacza wszystkie kontakty na tej stronie",
+        on_change=_set_all_selection,
+        args=(tuple(lead_ids),),
+    )
+
+
+def _truncated_cell(col, value: str, *, bold: bool = False,
+                    style: str = "", prefix: str = "") -> None:
+    """Ellipsis-truncated cell; title= gives the native full-text tooltip."""
+    safe = h(str(value))
+    inner = f"<b>{safe}</b>" if bold else safe
+    style_attr = f" style='{style}'" if style else ""
+    col.markdown(
+        f"{prefix}<div class='truncate-text' title=\"{safe}\"{style_attr}>{inner}</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def render_lead_table_header(with_checkbox: bool = False) -> None:
     weights = (_CHECKBOX_WEIGHT if with_checkbox else []) + _LEAD_WEIGHTS
     headers = ([""] if with_checkbox else []) + _LEAD_HEADERS
@@ -57,18 +89,13 @@ def render_lead_row(row: dict, key_prefix: str = "", with_checkbox: bool = False
         cols = cols[1:]
     c_name, c_email, c_co, c_pos, c_loc, c_status, c_tags, c_li, c_act = cols
 
-    c_name.markdown(
-        f"<span class='row-hover-marker'></span>**{h(row['full_name'])}**",
-        unsafe_allow_html=True,
-    )
-    c_email.markdown(
-        f"<span style='font-size:.88rem;font-family:ui-monospace,monospace;"
-        f"color:#a3a8b8'>{h(row['email'])}</span>",
-        unsafe_allow_html=True,
-    )
-    c_co.write(row["company"])
-    c_pos.write(row["position"])
-    c_loc.write(row["location"])
+    _truncated_cell(c_name, row["full_name"], bold=True,
+                    prefix="<span class='row-hover-marker'></span>")
+    _truncated_cell(c_email, row["email"],
+                    style="font-size:.88rem;font-family:ui-monospace,monospace;color:#a3a8b8")
+    _truncated_cell(c_co, row["company"])
+    _truncated_cell(c_pos, row["position"])
+    _truncated_cell(c_loc, row["location"])
     c_status.markdown(
         f"<span class='lbadge {STATUS_CLASS.get(row['status'], 'lb-nowy')}'>"
         f"{h(status_label(row['status']))}</span>",

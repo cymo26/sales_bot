@@ -24,6 +24,7 @@ import streamlit as st
 st.set_page_config(page_title="SALES BOT", layout="wide")
 
 from db import queries
+from ui.constants import ALL_TABS, TAB_FIRMY, TAB_IMPORT, TAB_KONTAKTY
 from ui.styles import apply_custom_css
 from ui.tabs import tab_companies, tab_contacts, tab_import
 
@@ -40,15 +41,26 @@ def main() -> None:
         st.error(f"Nie można połączyć się z bazą danych: {e}")
         st.stop()
 
-    tab_kontakty, tab_firmy, tab_imp = st.tabs(
-        ["👥 Kontakty", "🏢 Baza Firm", "📥 Import"]
+    # Session-state-driven navigation (st.tabs cannot be switched from code).
+    # Anything may set st.session_state["active_tab"] before st.rerun() to
+    # navigate — e.g. the lead profile's "Przejdź do profilu firmy" button.
+    # Only the active view renders, which also cuts rerun work by two thirds.
+    st.session_state.setdefault("active_tab", TAB_KONTAKTY)
+    selection = st.segmented_control(
+        "Nawigacja", ALL_TABS, key="active_tab", label_visibility="collapsed"
     )
-    with tab_kontakty:
-        tab_contacts.render()
-    with tab_firmy:
+    if selection:
+        st.session_state["_last_tab"] = selection
+    # Clicking the active segment deselects it (returns None) — keep showing
+    # the last real selection instead of jumping to the default view.
+    active = selection or st.session_state.get("_last_tab", TAB_KONTAKTY)
+
+    if active == TAB_FIRMY:
         tab_companies.render()
-    with tab_imp:
+    elif active == TAB_IMPORT:
         tab_import.render()
+    else:
+        tab_contacts.render()
 
 
 main()

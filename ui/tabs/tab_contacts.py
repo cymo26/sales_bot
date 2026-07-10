@@ -13,7 +13,7 @@ import streamlit as st
 from db import queries
 from ui.components import (current_page, render_lead_row,
                            render_lead_table_header, render_pagination,
-                           reset_page)
+                           render_select_all, reset_page)
 from ui.constants import AVAILABLE_TAGS, STATUS_OPTIONS, status_label
 from ui.dialogs import show_add_leads_dialog, show_lead_dialog
 
@@ -35,6 +35,8 @@ def render():
     f_statuses = applied.get("status", [])
     f_positions = applied.get("position", [])
     f_tags = applied.get("tags", [])
+    f_companies = applied.get("companies", [])
+    f_email_only = applied.get("email_only", False)
 
     # ── Data (all SQL-side: cascading options, aggregates, one page of rows) ──
     try:
@@ -43,11 +45,14 @@ def render():
             locations=tuple(f_locations),
             positions=tuple(f_positions),
             statuses=tuple(f_statuses),
+            companies=tuple(f_companies),
+            email_only=f_email_only,
         )
         # Drop applied values that no longer exist in the data
         f_locations = [v for v in f_locations if v in options["locations"]]
         f_positions = [v for v in f_positions if v in options["positions"]]
         f_statuses = [v for v in f_statuses if v in options["statuses"]]
+        f_companies = [v for v in f_companies if v in options["companies"]]
 
         filters = {
             "search": search,
@@ -55,6 +60,8 @@ def render():
             "positions": tuple(f_positions),
             "statuses": tuple(f_statuses),
             "tags": tuple(f_tags),
+            "companies": tuple(f_companies),
+            "email_only": f_email_only,
         }
         metrics = queries.fetch_lead_metrics(**filters)
         page_data = queries.fetch_leads_page(page=current_page(_PAGE_KEY), **filters)
@@ -66,11 +73,13 @@ def render():
 
     # ── Active filter badges ──
     active = []
-    if search:      active.append(f"Szukaj: *{search}*")
-    if f_locations: active.append(f"Lokalizacja: *{', '.join(f_locations)}*")
-    if f_statuses:  active.append(f"Status: *{', '.join(status_label(s) for s in f_statuses)}*")
-    if f_positions: active.append(f"Stanowisko: *{', '.join(f_positions)}*")
-    if f_tags:      active.append(f"Tagi: *{', '.join(f_tags)}*")
+    if search:       active.append(f"Szukaj: *{search}*")
+    if f_companies:  active.append(f"Firma: *{', '.join(f_companies)}*")
+    if f_locations:  active.append(f"Lokalizacja: *{', '.join(f_locations)}*")
+    if f_statuses:   active.append(f"Status: *{', '.join(status_label(s) for s in f_statuses)}*")
+    if f_positions:  active.append(f"Stanowisko: *{', '.join(f_positions)}*")
+    if f_tags:       active.append(f"Tagi: *{', '.join(f_tags)}*")
+    if f_email_only: active.append("Tylko z emailem: *TAK*")
     if active:
         st.caption("Aktywne filtry: " + " | ".join(active))
 
@@ -79,7 +88,11 @@ def render():
     # of rows that scrolled out of view get cleared so they can't come back
     # checked after a filter change and be deleted by surprise.
     visible_ids = [r["id"] for r in rows]
-    for lead_id in set(st.session_state.get("_kontakty_visible", [])) - set(visible_ids):
+    previous_ids = set(st.session_state.get("_kontakty_visible", []))
+    if previous_ids != set(visible_ids):
+        # The group changed (page/filter switch) — reset the master checkbox.
+        st.session_state.pop("select_all_leads", None)
+    for lead_id in previous_ids - set(visible_ids):
         st.session_state.pop(f"del_{lead_id}", None)
     st.session_state["_kontakty_visible"] = visible_ids
 
@@ -103,17 +116,24 @@ def render():
     col3.metric("Firmy", metrics["companies"])
     col4.metric("Ze stanowiskiem", metrics["with_position"])
 
-    # ── Filter bar (staged) ──
-    col_search, col_loc, col_pos, col_status, col_tags = st.columns([2.5, 1.5, 2, 1.5, 1.5])
+    # ── Filter bar (staged, two rows) ──
+    col_search, col_company, col_loc = st.columns([2.5, 2.5, 2])
     col_search.text_input(
-        "Szukaj", value=search, placeholder="Imię nazwisko, email, firma...",
+        "Szukaj", value=search, placeholder="Imię nazwisko, email...",
         key=f"f_search_{reset_key}", label_visibility="collapsed",
+    )
+    col_company.multiselect(
+        "Firma", options=options["companies"], default=f_companies,
+        placeholder="Firma", key=f"f_company_{reset_key}",
+        label_visibility="collapsed",
     )
     col_loc.multiselect(
         "Lokalizacja", options=options["locations"], default=f_locations,
         placeholder="Lokalizacja", key=f"f_location_{reset_key}",
         label_visibility="collapsed",
     )
+
+    col_pos, col_status, col_tags, col_email = st.columns([2.5, 1.5, 1.5, 1.5])
     col_pos.multiselect(
         "Stanowisko", options=options["positions"], default=f_positions,
         placeholder="Stanowisko", key=f"f_position_{reset_key}",
@@ -128,16 +148,25 @@ def render():
         "Tagi", options=AVAILABLE_TAGS, default=f_tags, placeholder="Tagi",
         key=f"f_tags_{reset_key}", label_visibility="collapsed",
     )
+    col_email.selectbox(
+        "Wyświetlaj tylko leady z emailem",
+        options=[False, True],
+        index=1 if f_email_only else 0,
+        format_func=lambda v: f"Tylko z emailem: {'TAK' if v else 'NIE'}",
+        key=f"f_email_only_{reset_key}", label_visibility="collapsed",
+    )
 
     col_save, col_clear, col_export = st.columns([1.5, 1.5, 1])
     if col_save.button("Zapisz filtry", type="primary", use_container_width=True,
                        key="btn_save_filters"):
         st.session_state["applied_filters"] = {
-            "search":   st.session_state.get(f"f_search_{reset_key}", ""),
-            "location": st.session_state.get(f"f_location_{reset_key}", []),
-            "status":   st.session_state.get(f"f_status_{reset_key}", []),
-            "position": st.session_state.get(f"f_position_{reset_key}", []),
-            "tags":     st.session_state.get(f"f_tags_{reset_key}", []),
+            "search":     st.session_state.get(f"f_search_{reset_key}", ""),
+            "location":   st.session_state.get(f"f_location_{reset_key}", []),
+            "status":     st.session_state.get(f"f_status_{reset_key}", []),
+            "position":   st.session_state.get(f"f_position_{reset_key}", []),
+            "tags":       st.session_state.get(f"f_tags_{reset_key}", []),
+            "companies":  st.session_state.get(f"f_company_{reset_key}", []),
+            "email_only": st.session_state.get(f"f_email_only_{reset_key}", False),
         }
         reset_page(_PAGE_KEY)
         st.rerun()
@@ -177,7 +206,8 @@ def render():
 
     # ── Empty state ──
     if not rows:
-        if search or f_locations or f_statuses or f_positions or f_tags:
+        if (search or f_locations or f_statuses or f_positions or f_tags
+                or f_companies or f_email_only):
             st.info("Brak wyników dla aktualnych filtrów. Zmień kryteria lub wyczyść filtry.")
         else:
             st.info("Brak leadów w bazie danych. Zaimportuj dane w zakładce 'Import'.")
@@ -236,6 +266,7 @@ def render():
         show_add_leads_dialog()
 
     # ── Lead table (current page only) ──
+    render_select_all(visible_ids)
     render_lead_table_header(with_checkbox=True)
     for row in rows:
         if render_lead_row(row, with_checkbox=True):

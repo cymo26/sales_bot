@@ -157,10 +157,13 @@ class Lead(SQLModel, table=True):
         default_factory=uuid.uuid4,
         primary_key=True,
     )
-    email: str = Field(
+    email: Optional[str] = Field(
+        default=None,
         unique=True,
         index=True,
-        description="Lead email (system-wide deduplication key)"
+        nullable=True,
+        description="Lead email (deduplication key when present; optional — "
+                    "imports may carry leads without an address)"
     )
     first_name: Optional[str] = Field(
         default=None,

@@ -94,9 +94,13 @@ def render():
 
     st.caption(f"Znaleziono **{page_data['total']}** firm(y).")
 
+    # Cross-navigation from the lead profile: expand the target company once.
+    auto_expand_id = st.session_state.get("auto_expand_company_id")
+
     for co in companies:
+        is_expanded = co["id"] == auto_expand_id
         label = f"{co['name']} — {co['domain']}  ·  {len(co['leads'])} kontakt(ów)"
-        with st.expander(label, expanded=False):
+        with st.expander(label, expanded=is_expanded):
             meta1, meta2, meta3 = st.columns(3)
             meta1.markdown(f"**Branża:** {co['industry']}")
             meta2.markdown(f"**Lokalizacja:** {co['location']}")
@@ -110,6 +114,11 @@ def render():
                         show_lead_dialog(row["id"])
             else:
                 st.caption("Brak kontaktów pasujących do filtrów.")
+
+    # One-shot: clear after rendering so the expander doesn't stay pinned open
+    # (or pop open again) on subsequent reruns.
+    if auto_expand_id:
+        st.session_state.pop("auto_expand_company_id", None)
 
     st.markdown("---")
     render_pagination(_PAGE_KEY, page_data["page"], page_data["pages"],

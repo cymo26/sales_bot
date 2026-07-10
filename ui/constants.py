@@ -13,6 +13,13 @@ AVAILABLE_TAGS = ["JDD", "OMH", "CONFIDENCE"]
 # Trailing option of every industry select; reveals a free-text input.
 ADD_NEW_INDUSTRY = "+ Dodaj nową branżę..."
 
+# Navigation (segmented control in dashboard.py). st.session_state["active_tab"]
+# holds the current one and may be set programmatically before st.rerun().
+TAB_KONTAKTY = "👥 Kontakty"
+TAB_FIRMY = "🏢 Baza Firm"
+TAB_IMPORT = "📥 Import"
+ALL_TABS = [TAB_KONTAKTY, TAB_FIRMY, TAB_IMPORT]
+
 STATUS_OPTIONS = list(CANONICAL_STATUSES)  # ["new", "sent", "opened", "replied", "bounced"]
 
 STATUS_LABELS = {

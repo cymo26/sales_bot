@@ -15,6 +15,8 @@ import streamlit as st
 from db import queries
 from ui.constants import ADD_NEW_INDUSTRY, AVAILABLE_TAGS
 
+_MAX_FILES = 5
+
 # Recognized CSV header variants (normalized: lowercase, spaces→underscores).
 _COLUMN_PATTERNS = {
     "email": [
@@ -84,20 +86,36 @@ def _df_to_records(df: pd.DataFrame, mapping: dict) -> list:
 
 def render():
     st.header("Importuj nowe kontakty")
-    st.markdown("Wgraj plik CSV (np. z Eventory lub Livespace), aby dodać rekordy do bazy.")
+    st.markdown("Wgraj pliki CSV (np. z Eventory, Livespace lub Clay), aby dodać rekordy do bazy.")
 
-    uploaded_file = st.file_uploader("Przeciągnij i upuść plik CSV tutaj", type=["csv"])
+    uploaded_files = st.file_uploader(
+        "Przeciągnij i upuść pliki CSV tutaj (maks. 5 na raz)",
+        type=["csv"], accept_multiple_files=True,
+    )
+    if uploaded_files and len(uploaded_files) > _MAX_FILES:
+        st.warning(f"Maksymalnie {_MAX_FILES} plików na raz — użyto pierwszych {_MAX_FILES}.")
+        uploaded_files = uploaded_files[:_MAX_FILES]
 
-    df = None
-    if uploaded_file is not None:
+    # (file name, DataFrame) for every readable, non-empty upload
+    dataframes = []
+    for uploaded in uploaded_files or []:
         try:
-            df = pd.read_csv(uploaded_file)
+            df = pd.read_csv(uploaded)
         except Exception as e:
-            st.error(f"Nie udało się wczytać pliku CSV: {e}")
-        else:
-            st.success(f"Pomyślnie wczytano plik: {uploaded_file.name}")
-            st.markdown(f"**Podgląd pierwszych 5 wierszy z {len(df)}**")
-            st.dataframe(df.head())
+            st.error(f"Nie udało się wczytać pliku {uploaded.name}: {e}")
+            continue
+        if df.empty:
+            st.warning(f"{uploaded.name}: plik jest pusty — pominięto")
+            continue
+        dataframes.append((uploaded.name, df))
+
+    if dataframes:
+        total_rows = sum(len(df) for _, df in dataframes)
+        st.success(f"Wczytano {len(dataframes)} plik(ów) — łącznie {total_rows} wierszy.")
+        for name, df in dataframes:
+            with st.expander(f"Podgląd: {name} — {len(df)} wierszy",
+                             expanded=len(dataframes) == 1):
+                st.dataframe(df.head())
 
     selected_tags = st.multiselect(
         "Przypisz tagi do importowanych leadów:",
@@ -131,21 +149,30 @@ def render():
     if not st.button("Zapisz do bazy PostgreSQL", type="primary"):
         return
 
-    if df is None or df.empty:
-        st.error("Proszę najpierw wczytać plik CSV")
+    if not dataframes:
+        st.error("Proszę najpierw wczytać przynajmniej jeden plik CSV")
         return
 
     if industry_choice == ADD_NEW_INDUSTRY and not selected_industry:
         st.error("Wpisz nazwę nowej branży lub wybierz istniejącą z listy.")
         return
 
-    mapping = detect_column_mapping(df.columns)
-    if not mapping or "email" not in mapping:
-        st.error("CSV musi zawierac kolumne 'email' (lub podobnie nazwana)")
-        return
+    # Column detection runs per file — the files may have different layouts.
+    records = []
+    for name, df in dataframes:
+        mapping = detect_column_mapping(df.columns)
+        if not mapping:
+            st.error(f"{name}: nie rozpoznano żadnej kolumny — plik pominięty")
+            continue
+        if "email" not in mapping:
+            st.warning(f"{name}: brak kolumny email — leady trafią do bazy bez adresów "
+                       "(uwaga: bez emaila nie działa deduplikacja).")
+        st.info(f"{name} — wykryto kolumny: {mapping}")
+        records.extend(_df_to_records(df, mapping))
 
-    st.info(f"Wykryto kolumny: {mapping}")
-    records = _df_to_records(df, mapping)
+    if not records:
+        st.error("Żaden z plików nie nadaje się do importu.")
+        return
 
     try:
         with st.spinner(f"Importuję {len(records)} rekordów..."):
@@ -159,7 +186,7 @@ def render():
     if summary["skipped_duplicates"]:
         st.warning(f"Pominieto {summary['skipped_duplicates']} lead(ow) (duplikaty)")
     if summary["skipped_invalid"]:
-        st.warning(f"Pominieto {summary['skipped_invalid']} wiersz(y) bez adresu email")
+        st.warning(f"Pominieto {summary['skipped_invalid']} calkowicie pusty(ch) wiersz(y)")
     if summary["industry_set"]:
         st.success(f"Ustawiono branżę '{selected_industry}' dla {summary['industry_set']} firm(y)")
     if summary["industry_kept"]:
