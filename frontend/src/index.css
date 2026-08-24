@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Dark-only theme — mirrors the original Streamlit "Premium Dark Theme"
+       (ui/styles.py). Defined on :root (not a .dark class) since the app
+       never offers a light mode, matching the source it replaces. */
+    --background: 222 24% 6%;
+    --foreground: 210 20% 92%;
+
+    --card: 222 22% 9%;
+    --card-foreground: 210 20% 92%;
+
+    --popover: 222 22% 9%;
+    --popover-foreground: 210 20% 92%;
+
+    --primary: 243 75% 65%;
+    --primary-foreground: 210 20% 98%;
+
+    --secondary: 222 18% 14%;
+    --secondary-foreground: 210 20% 92%;
+
+    --muted: 222 18% 14%;
+    --muted-foreground: 217 12% 65%;
+
+    --accent: 222 18% 16%;
+    --accent-foreground: 210 20% 92%;
+
+    --destructive: 0 72% 60%;
+    --destructive-foreground: 210 20% 98%;
+
+    --border: 217 19% 20%;
+    --input: 217 19% 18%;
+    --ring: 243 75% 65%;
+
+    --radius: 0.625rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.4);
+  }
+}
+
+@layer utilities {
+  /* Text truncation with a native tooltip (title=…) — same behavior as the
+     Streamlit table's .truncate-text cells. */
+  .truncate-cell {
+    @apply block truncate;
+  }
+}
