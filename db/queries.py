@@ -302,21 +302,25 @@ def fetch_lead_detail(lead_id: str):
 def fetch_leads_for_export(search="", locations=(), positions=(), statuses=(), tags=(),
                            companies=(), email_only=False):
     """The FULL filtered set for the outreach CSV — deliberately just
-    First Name + Email (all the mail-merge script needs). This is the one
+    Name + Email + Position. This is the one
     sanctioned exception to pagination: it never renders, runs only on an
     explicit export click, and selects plain tuples (no ORM objects)."""
     conditions = _lead_conditions(search, locations, positions, statuses, tags,
                                   companies=companies, email_only=email_only)
     with db_session() as session:
         rows = session.execute(
-            select(Lead.first_name, Lead.email)
+            select(Lead.first_name, Lead.last_name, Lead.email, Lead.position)
             .outerjoin(Company, Lead.company_id == Company.id)
             .where(*conditions)
             .order_by(Lead.created_at.desc(), Lead.id)
         ).all()
     return [
-        {"First Name": first or "", "Email": email or ""}
-        for first, email in rows
+        {
+            "Name": f"{first or ''} {last or ''}".strip(),
+            "Email": email or "",
+            "Position": position or "",
+        }
+        for first, last, email, position in rows
     ]
 
 

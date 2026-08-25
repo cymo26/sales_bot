@@ -52,7 +52,8 @@ function hasActiveFilters(f: LeadFilters): boolean {
     f.statuses.length > 0 ||
     f.positions.length > 0 ||
     f.tags.length > 0 ||
-    f.email_only
+    f.email_only ||
+    f.no_email
   );
 }
 
@@ -200,6 +201,7 @@ export function ContactsView({ onOpenLead, refreshSignal, onMutated }: ContactsV
   if (applied.positions.length) activeFilterChips.push(`Stanowisko: ${applied.positions.join(", ")}`);
   if (applied.tags.length) activeFilterChips.push(`Tagi: ${applied.tags.join(", ")}`);
   if (applied.email_only) activeFilterChips.push("Tylko z emailem: TAK");
+  if (applied.no_email) activeFilterChips.push("Tylko bez emaila: TAK");
 
   const sidebar = (
     <>
@@ -259,9 +261,21 @@ export function ContactsView({ onOpenLead, refreshSignal, onMutated }: ContactsV
       <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground/85">
         <Checkbox
           checked={draft.email_only}
-          onCheckedChange={(c) => setDraft((d) => ({ ...d, email_only: c === true }))}
+          onCheckedChange={(c) =>
+            setDraft((d) => ({ ...d, email_only: c === true, no_email: c === true ? false : d.no_email }))
+          }
         />
         Tylko z emailem
+      </label>
+
+      <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground/85">
+        <Checkbox
+          checked={draft.no_email}
+          onCheckedChange={(c) =>
+            setDraft((d) => ({ ...d, no_email: c === true, email_only: c === true ? false : d.email_only }))
+          }
+        />
+        Tylko bez emaila
       </label>
 
       <Separator />

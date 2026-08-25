@@ -2,6 +2,7 @@ import { Linkedin } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { LivespaceBadge } from "@/components/leads/LivespaceBadge";
 import { StatusBadge } from "@/components/leads/StatusBadge";
 import { TagPills } from "@/components/leads/TagPills";
 import { display, fullName } from "@/lib/utils";
@@ -14,7 +15,7 @@ import type { Lead } from "@/lib/types";
  * proportions mirror the original _LEAD_WEIGHTS exactly so both call sites
  * stay visually aligned. */
 
-const BASE_COLS = "2fr 2.3fr 1.8fr 2fr 1.3fr 1fr 1.5fr 0.8fr auto";
+const BASE_COLS = "2fr 2.3fr 1.8fr 2fr 1.3fr 1fr 1.5fr 1.6fr 0.8fr auto";
 const CHECKBOX_COL = "1.75rem";
 
 function gridCols(withCheckbox: boolean) {
@@ -54,6 +55,7 @@ export function LeadListHeader({ withCheckbox, allChecked, onToggleAll }: LeadLi
       <div>Lokalizacja</div>
       <div>Status</div>
       <div>Tagi</div>
+      <div>Livespace</div>
       <div>LN</div>
       <div />
     </div>
@@ -86,6 +88,9 @@ export function LeadListRow({ lead, withCheckbox, checked, onToggleChecked, onOp
         <StatusBadge status={lead.status} />
       </div>
       <TagPills tags={lead.tags} />
+      <div className="min-w-0">
+        <LivespaceBadge lead={lead} className="max-w-full truncate" />
+      </div>
       <div>
         {lead.linkedin_url ? (
           <a

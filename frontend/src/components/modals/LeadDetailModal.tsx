@@ -1,6 +1,7 @@
 import * as React from "react";
-import { Building2, Linkedin } from "lucide-react";
+import { Building2, Linkedin, RefreshCw } from "lucide-react";
 
+import { LivespaceBadge } from "@/components/leads/LivespaceBadge";
 import { StatusBadge } from "@/components/leads/StatusBadge";
 import { TagPills } from "@/components/leads/TagPills";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ export function LeadDetailModal({ leadId, onOpenChange, onGoToCompany, onMutated
   const [saving, setSaving] = React.useState(false);
   const [confirmingDelete, setConfirmingDelete] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
+  const [refreshingLivespace, setRefreshingLivespace] = React.useState(false);
 
   React.useEffect(() => {
     if (leadId === null) return;
@@ -97,6 +99,32 @@ export function LeadDetailModal({ leadId, onOpenChange, onGoToCompany, onMutated
       });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleRefreshLivespace() {
+    if (!leadId) return;
+    setRefreshingLivespace(true);
+    try {
+      const result = await leadsApi.refreshLivespace(leadId);
+      setLead((prev) => (prev ? { ...prev, ...result } : prev));
+      if (result.livespace_sync_status === "matched") {
+        toast({ title: "Kontakt jest już obsługiwany w Livespace.", variant: "destructive" });
+      } else if (result.livespace_sync_status === "not_found") {
+        toast({ title: "Nie znaleziono w Livespace — kontakt wygląda na wolny." });
+      } else if (result.livespace_sync_status === "disabled") {
+        toast({ title: "Integracja z Livespace nie jest skonfigurowana." });
+      } else if (result.livespace_sync_status === "error") {
+        toast({ variant: "destructive", title: "Nie udało się sprawdzić statusu w Livespace." });
+      }
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Nie udało się odświeżyć statusu Livespace",
+        description: errorMessage(err),
+      });
+    } finally {
+      setRefreshingLivespace(false);
     }
   }
 
@@ -162,6 +190,20 @@ export function LeadDetailModal({ leadId, onOpenChange, onGoToCompany, onMutated
                 {display(lead.position)}&nbsp;&nbsp;·&nbsp;&nbsp;{display(lead.company_name)}
               </p>
               {lead.tags.length > 0 && <TagPills tags={lead.tags} />}
+              <div className="flex flex-wrap items-center gap-2">
+                <LivespaceBadge lead={lead} />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1 px-2 text-xs text-muted-foreground"
+                  disabled={refreshingLivespace}
+                  onClick={handleRefreshLivespace}
+                >
+                  <RefreshCw className={`h-3 w-3 ${refreshingLivespace ? "animate-spin" : ""}`} />
+                  Odśwież status Livespace
+                </Button>
+              </div>
             </div>
 
             <Separator />

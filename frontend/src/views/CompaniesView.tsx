@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { PageLayout, SidebarSection } from "@/components/layout/Sidebar";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -194,8 +195,15 @@ export function CompaniesView({ onOpenLead, navRequest, refreshSignal }: Compani
             {pageData.rows.map((company) => (
               <AccordionItem key={company.id} value={company.id}>
                 <AccordionTrigger>
-                  <span className="truncate">
-                    {company.name} — {company.domain ?? "—"} · {company.leads.length} kontakt(ów)
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate">
+                      {company.name} — {company.domain ?? "—"} · {company.leads.length} kontakt(ów)
+                    </span>
+                    {company.livespace_engaged && (
+                      <Badge variant="livespaceEngaged" className="shrink-0">
+                        Aktywne zaangażowanie
+                      </Badge>
+                    )}
                   </span>
                 </AccordionTrigger>
                 <AccordionContent>
@@ -210,6 +218,12 @@ export function CompaniesView({ onOpenLead, navRequest, refreshSignal }: Compani
                       <span className="font-semibold text-foreground">Wielkość:</span> {company.size_range ?? "—"}
                     </div>
                   </div>
+
+                  {company.livespace_engaged && (
+                    <p className="mb-3 text-xs text-status-replied">
+                      Firma jest już w kontakcie sprzedażowym (Livespace) — {company.livespace_engaged_via}
+                    </p>
+                  )}
 
                   {company.leads.length > 0 ? (
                     <div>

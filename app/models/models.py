@@ -52,11 +52,17 @@ class Company(SQLModel, table=True):
         nullable=True,
         description="Comma-separated unique cities aggregated from this company's leads"
     )
+    livespace_company_id: Optional[str] = Field(
+        default=None,
+        index=True,
+        nullable=True,
+        description="External company ID from Livespace CRM (phase-2 domain-matching; currently unpopulated)"
+    )
     created_at: datetime = Field(
         default_factory=datetime.utcnow,
         description="Timestamp when company was created"
     )
-    
+
     # Relationships
     leads: List["Lead"] = Relationship(
         back_populates="company",
@@ -195,6 +201,26 @@ class Lead(SQLModel, table=True):
         index=True,
         nullable=True,
         description="External ID from Livespace CRM for bidirectional sync"
+    )
+    livespace_owner_name: Optional[str] = Field(
+        default=None,
+        nullable=True,
+        description="Denormalized display name of the Livespace user (Opiekun) who owns this contact"
+    )
+    livespace_deal_name: Optional[str] = Field(
+        default=None,
+        nullable=True,
+        description="Name of the active (status=open) Livespace deal tied to this contact, if any"
+    )
+    livespace_sync_status: Optional[str] = Field(
+        default=None,
+        nullable=True,
+        description="'matched' | 'not_found' | 'error' | 'disabled' | None (never synced)"
+    )
+    livespace_last_synced_at: Optional[datetime] = Field(
+        default=None,
+        nullable=True,
+        description="Set only on a successful sync (including a legitimate not_found), never on error"
     )
     status: str = Field(
         default="new",

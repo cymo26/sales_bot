@@ -22,6 +22,10 @@ const badgeVariants = cva(
         omh: "border-tag-omh/30 bg-tag-omh/10 text-tag-omh",
         confidence: "border-tag-confidence/30 bg-tag-confidence/10 text-tag-confidence",
         tagDefault: "border-tag-default/30 bg-tag-default/10 text-tag-default",
+        // Livespace ownership warnings — distinct from status/tag badges on
+        // purpose: these are cross-system warnings, not our own data.
+        livespaceOwned: "border-destructive/40 bg-destructive/10 text-destructive",
+        livespaceEngaged: "border-status-replied/40 bg-status-replied/10 text-status-replied",
       },
     },
     defaultVariants: {
